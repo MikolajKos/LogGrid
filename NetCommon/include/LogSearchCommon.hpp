@@ -9,7 +9,7 @@
 #include "olc_net.hpp"
 
 namespace LogSystem {
-    enum class LogSearchMessage {
+    enum class LogSearchMsg {
         Worker_Hello,           // Worker is ready
         Server_SearchTask,      // Master sends TaskPayload structure
         Worker_FoundLine,       // Worker sends matching code line
