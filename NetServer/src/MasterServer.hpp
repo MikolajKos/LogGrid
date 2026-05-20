@@ -59,6 +59,26 @@ protected:
      */
     void OnMessage(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client, 
                    olc::net::message<LogSystem::LogSearchMsg>& msg) override;
+
+private:
+    /**
+     * @brief Helper method to dispatch the next available task to a specific client.
+     * 
+     * If the pending queue is empty, it sends a Server_JobFinished message.
+     * 
+     * @param client Shared pointer to the client requesting work.
+     */
+    void DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client);
+
+private:
+    std::mutex m_stateMutex;
+    std::deque<LogSystem::TaskPayload> m_pendingTasks;
+
+    /** 
+     * @brief Map tracking tasks currently being processed.
+     * Key is the client ID, Value is the assigned task payload. 
+     */
+    std::unordered_map<uint32_t, LogSystem::TaskPayload> m_inFlightTasks;
 };
 
 #endif // MASTER_SERVER_HPP
