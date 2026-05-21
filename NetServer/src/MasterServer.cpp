@@ -121,7 +121,7 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
             break;
         }
         default:
-            std::cout << "[MASTER] Undefined message recived from Worker: " << client->GetID() << "\n";
+            std::cout << "[MASTER] Undefined message type received from Worker: " << client->GetID() << "\n";
             break;
     }
 }
