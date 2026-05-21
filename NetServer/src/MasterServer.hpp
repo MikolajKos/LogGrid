@@ -79,6 +79,12 @@ private:
      * Key is the client ID, Value is the assigned task payload. 
      */
     std::unordered_map<uint32_t, LogSystem::TaskPayload> m_inFlightTasks;
+
+    /** 
+     * @brief Workers waiting for job to be given.
+     * If there are no pending tasks but some workers are still working. 
+     */
+    std::deque<std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>>> m_idleWorkers;
 };
 
 #endif // MASTER_SERVER_HPP
