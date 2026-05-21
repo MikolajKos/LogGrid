@@ -88,3 +88,40 @@ void MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSyst
         std::cout << "[MASTER] No more tasks. Notified Worker ID: " << client->GetID() << " to shut down.\n";
     }
 }
+
+void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client, 
+    olc::net::message<LogSystem::LogSearchMsg>& msg) {
+    
+    switch (msg.header.id) {
+        case LogSystem::LogSearchMsg::Worker_Hello: {
+            std::cout << "[MASTER] Hello message recived from Worker: " << client->GetID() << ". Asigning task\n";
+            DispatchNextTask(client);
+
+            break;
+        }
+        case LogSystem::LogSearchMsg::Worker_FoundLine: {
+            // In here we should store found line and worker continues its job
+            std::cout << "[MASTER] Worker: " << client->GetID() << ". New Line Found!\n";
+
+            break;
+        }
+        case LogSystem::LogSearchMsg::Worker_TaskDone: {
+            std::cout << "[MASTER] Worker: " << client->GetID() << " finished asigned task\n";
+
+            {
+                std::lock_guard<std::mutex> lock(m_stateMutex);
+
+                auto it = m_inFlightTasks.find(client->GetID());
+                if (it != m_inFlightTasks.end())
+                    m_inFlightTasks.erase(it);
+            }
+
+            DispatchNextTask(client);
+            
+            break;
+        }
+        default:
+            std::cout << "[MASTER] Undefined message recived from Worker: " << client->GetID() << "\n";
+            break;
+    }
+}
