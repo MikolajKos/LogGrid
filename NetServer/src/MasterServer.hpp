@@ -2,6 +2,7 @@
 #define MASTER_SERVER_HPP
 
 #include <deque>
+#include <queue>
 #include <unordered_map>
 #include <mutex>
 #include <memory>
@@ -84,7 +85,7 @@ private:
      * @brief Workers waiting for job to be given.
      * If there are no pending tasks but some workers are still working. 
      */
-    std::deque<std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>>> m_idleWorkers;
+    std::queue<std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>>> m_idleWorkers;
 };
 
 #endif // MASTER_SERVER_HPP

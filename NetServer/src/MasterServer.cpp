@@ -19,19 +19,33 @@ bool MasterServer::OnClientConnect(std::shared_ptr<olc::net::connection<LogSyste
 void MasterServer::OnClientDisconnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
     uint32_t clientID = client->GetID();
 
-    std::lock_guard<std::mutex> lock(m_stateMutex);
+    std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> workerToWakeUp = nullptr;
+    
+    // Scope locked block
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
 
-    // Adding back task from disconnected client
-    auto it = m_inFlightTasks.find(clientID);
+        // Adding back task from disconnected client
+        auto it = m_inFlightTasks.find(clientID);
 
-    if (it != m_inFlightTasks.end()) {
-        m_pendingTasks.push_front(it->second);
+        if (it != m_inFlightTasks.end()) {
+            m_pendingTasks.push_front(it->second);
 
-        // Erasing old client because new one will be added
-        m_inFlightTasks.erase(it);
-        
-        std::cout << "[MASTER] Fault Tolerance triggered. Reclaimed task from lost Worker ID: " << clientID << "\n";
+            // Erasing old client because new one will be added
+            m_inFlightTasks.erase(it);
+            
+            std::cout << "[MASTER] Fault Tolerance triggered. Reclaimed task from lost Worker ID: " << clientID << "\n";
+
+            if (!m_idleWorkers.empty()) {
+                workerToWakeUp = m_idleWorkers.front();
+                m_idleWorkers.pop();
+            }
+        }
     }
+
+    // Asign job to new worker if exists
+    if (workerToWakeUp)
+        DispatchNextTask(workerToWakeUp);
 }
 
 void MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
@@ -59,7 +73,7 @@ void MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSyst
         std::cout << "[MASTER] Dispatched task to Worker ID: " << clientID << "\n";
     }
     else if (!m_inFlightTasks.empty()) {
-        m_idleWorkers.push_back(client);
+        m_idleWorkers.push(client);
 
         std::cout << "[MASTER] No tasks available. Worker ID: " << client->GetID() << " added to idle queue.\n";
     }
