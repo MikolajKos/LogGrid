@@ -25,6 +25,10 @@ namespace LogSystem {
         uint64_t start_line;    // Line offset
         uint64_t end_line;      // End of chunk (0 means search till EOF)
     };
+
+    struct ResultPayload {
+        char text[256];
+    };
 }
 
 #endif // LOG_SEARCH_COMMON_HPP

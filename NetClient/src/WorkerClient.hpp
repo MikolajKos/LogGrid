@@ -19,7 +19,7 @@ public:
     void ProcessTask(const LogSystem::TaskPayload& task);
     
 private:
-    void SendMessage(const LogSystem::LogSearchMsg msgType, msg);
+    void WorkerClient::SendMessage(const LogSystem::LogSearchMsg msgType, const std::string& line = std::string());
 };
 
 #endif // WORKER_CLIENT_HPP

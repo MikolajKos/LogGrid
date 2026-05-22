@@ -1,3 +1,4 @@
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -42,7 +43,9 @@ void WorkerClient::ProcessTask(const LogSystem::TaskPayload& task) {
         if (!line.empty() && line.back() == '\r')
             line.pop_back();
 
-        // <-- i will implement line handling here
+        if (line.find(task.keyword) != std::string::npos) {
+            SendMessage(LogSystem::LogSearchMsg::Worker_FoundLine, line);
+        }
 
         // Position update
         std::streampos pos = file.tellg();
@@ -54,6 +57,8 @@ void WorkerClient::ProcessTask(const LogSystem::TaskPayload& task) {
 
         currentPos = static_cast<uint64_t>(pos);
     }
+
+    SendMessage(LogSystem::LogSearchMsg::Worker_TaskDone);
 }
 
 void WorkerClient::OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) {
@@ -75,4 +80,25 @@ void WorkerClient::OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) {
             break;
         }
     }
+}
+
+void WorkerClient::SendMessage(const LogSystem::LogSearchMsg msgType, const std::string& line) {
+    olc::net::message<LogSystem::LogSearchMsg> msg;
+
+    msg.header.id = msgType;
+
+    if (!line.empty()) {
+        // Create payload structure
+        LogSystem::ResultPayload payload;
+
+        // Important to leave one free byte for null-terminator '\0'
+        strncpy(payload.text, line.c_str(), sizeof(payload.text) - 1);
+        
+        // sizeof - 1 because 255 is last index not 256! Rookie mistake
+        payload.text[sizeof(payload.text) - 1] = '\0';
+
+        msg << payload;
+    }
+
+    Send(msg);
 }
