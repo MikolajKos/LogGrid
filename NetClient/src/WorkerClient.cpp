@@ -7,6 +7,8 @@
 
 WorkerClient::WorkerClient() {}
 
+WorkerClient::~WorkerClient() {}
+
 void WorkerClient::ProcessTask(const LogSystem::TaskPayload& task) {    
     std::ifstream file(task.filename, std::ios::binary);
 
@@ -101,4 +103,8 @@ void WorkerClient::SendMessage(const LogSystem::LogSearchMsg msgType, const std:
     }
 
     Send(msg);
+}
+
+void WorkerClient::OnConnectionResult(bool bConnected) {
+
 }
