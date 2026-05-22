@@ -167,11 +167,11 @@ namespace olc
                 ReadHeader();
             }
 
-        protected:
+            protected:
+            asio::io_context& m_asioContext;
+            
             // Each connection has a unique socket to a remote
             asio::ip::tcp::socket m_socket;
-
-            asio::io_context& m_asioContext;
 
             // This queue holds all messages to be sent to the remote side
             // of this connection
