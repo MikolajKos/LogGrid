@@ -7,7 +7,7 @@
 class WorkerClient : public olc::net::client_interface<LogSystem::LogSearchMsg> {
 public:
     WorkerClient();
-    virtual ~WorkerClient();
+    virtual ~WorkerClient() = default;
 
 protected:
     void OnConnectionResult(bool bConnected) override;
