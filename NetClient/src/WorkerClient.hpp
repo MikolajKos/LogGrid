@@ -1,6 +1,3 @@
-
-
-
 #ifndef WORKER_CLIENT_HPP
 #define WORKER_CLIENT_HPP
 
@@ -10,16 +7,16 @@
 class WorkerClient : public olc::net::client_interface<LogSystem::LogSearchMsg> {
 public:
     WorkerClient();
+    virtual ~WorkerClient() = default;
 
 protected:
     void OnConnectionResult(bool bConnected) override;
     void OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) override;
 
-public:
-    void ProcessTask(const LogSystem::TaskPayload& task);
-    
 private:
-    void WorkerClient::SendMessage(const LogSystem::LogSearchMsg msgType, const std::string& line = std::string());
+    void ProcessTask(const LogSystem::TaskPayload& task);
+
+    void SendMessage(const LogSystem::LogSearchMsg msgType, const std::string& line = std::string());
 };
 
 #endif // WORKER_CLIENT_HPP
