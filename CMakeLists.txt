@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(LogSearchDist CXX)
+project(LogGrid CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,9 +11,6 @@ if(MSVC)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter)
 endif()
-
-set(THREADS_PREFER_PTHREAD_FLAG ON)
-find_package(Threads REQUIRED)
 
 add_subdirectory(NetCommon)
 add_subdirectory(NetServer)
@@ -33,7 +30,7 @@ if(DOXYGEN_FOUND)
 
     # Creates new "doc" target
     doxygen_add_docs(doc
-        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/NetClient/include
         ${CMAKE_SOURCE_DIR}/NetServer/src
         ${CMAKE_SOURCE_DIR}/NetClient/src
         COMMENT "Generating HTML documentation with Doxygen"
