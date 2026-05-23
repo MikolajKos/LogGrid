@@ -7,8 +7,6 @@
 
 WorkerClient::WorkerClient() {}
 
-WorkerClient::~WorkerClient() {}
-
 void WorkerClient::ProcessTask(const LogSystem::TaskPayload& task) {    
     std::ifstream file(task.filename, std::ios::binary);
 
