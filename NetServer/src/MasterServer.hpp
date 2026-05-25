@@ -35,6 +35,8 @@ public:
      */
     void AddTask(const LogSystem::TaskPayload& task);
 
+    void StartSearch(const std::string& filepath, const std::string& keyword);
+
 protected:
     /**
      * @brief Called automatically when a new client connects.
