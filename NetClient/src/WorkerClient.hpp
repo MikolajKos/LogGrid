@@ -16,6 +16,7 @@ protected:
 private:
     void ProcessTask(const LogSystem::TaskPayload& task);
 
+public:
     void SendMessage(const LogSystem::LogSearchMsg msgType, const std::string& line = std::string());
 };
 
