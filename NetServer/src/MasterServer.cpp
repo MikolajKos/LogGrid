@@ -1,6 +1,11 @@
 #include <iostream>
+#include <filesystem>
+#include <fstream>
 
 #include "MasterServer.hpp"
+
+// 10MB chunk size
+const uint64_t CHUNK_SIZE = 10 * 1024 * 1024;
 
 MasterServer::MasterServer(uint16_t port)
     : olc::net::server_interface<LogSystem::LogSearchMsg>(port) {}
@@ -9,6 +14,41 @@ void MasterServer::AddTask(const LogSystem::TaskPayload& task) {
     std::lock_guard<std::mutex> lock(m_stateMutex);
     m_pendingTasks.push_back(task);
     std::cout << "[MASTER] Added task for file: " << task.filename << "\n";
+}
+
+void MasterServer::StartSearch(const std::string& filepath, const std::string& keyword) {
+    if (!std::filesystem::exists(filepath)) {
+        std::cout << "[MASTER] Could not open desired file: " << filepath << "\n";
+        return;
+    }
+
+    uint64_t fileSize = std::filesystem::file_size(filepath);
+    uint64_t currentByte = 0;
+
+    LogSystem::TaskPayload task;
+    
+    strncpy(task.filename, filepath.c_str(), sizeof(task.filename));
+    task.filename[sizeof(task.filename) - 1] = '\0';
+
+    strncpy(task.keyword, keyword.c_str(), sizeof(task.keyword));
+    task.keyword[sizeof(task.keyword) - 1] = '\0';
+    
+    while (true) {
+        if ((currentByte + CHUNK_SIZE) >= fileSize) {
+            task.start_line = currentByte;
+            task.end_line = fileSize;
+            AddTask(task);
+            break;
+        }
+
+        task.start_line = currentByte;
+        task.end_line = currentByte + CHUNK_SIZE;
+
+        AddTask(task);
+        
+        // Update next chunk start position
+        currentByte += CHUNK_SIZE;
+    }
 }
 
 bool MasterServer::OnClientConnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
@@ -100,8 +140,11 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
             break;
         }
         case LogSystem::LogSearchMsg::Worker_FoundLine: {
+            LogSystem::ResultPayload result;
+            msg >> result;
+
             // In here we should store found line and worker continues its job
-            std::cout << "[MASTER] Worker: " << client->GetID() << ". New Line Found!\n";
+            std::cout << "[MASTER] Worker: " << client->GetID() << ". Found New Line: " << result.text << "\n";
 
             break;
         }
