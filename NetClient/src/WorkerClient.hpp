@@ -1,8 +1,9 @@
 #ifndef WORKER_CLIENT_HPP
 #define WORKER_CLIENT_HPP
 
-#include "olc_net.hpp"
 #include "LogSearchCommon.hpp"
+#include "olc_net.hpp"
+#include "ThreadPool.hpp"
 
 class WorkerClient : public olc::net::client_interface<LogSystem::LogSearchMsg> {
 public:
@@ -18,6 +19,9 @@ private:
 
 public:
     void SendMessage(const LogSystem::LogSearchMsg msgType, const std::string& line = std::string());
+
+private:
+    ThreadPool m_threadPool;
 };
 
 #endif // WORKER_CLIENT_HPP
