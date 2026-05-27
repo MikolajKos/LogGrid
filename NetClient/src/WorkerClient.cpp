@@ -2,10 +2,13 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 
 #include "WorkerClient.hpp"
 
-WorkerClient::WorkerClient() {}
+// Constructor with ThreadPool initialization
+WorkerClient::WorkerClient()
+    : m_threadPool(std::thread::hardware_concurrency()) {}
 
 void WorkerClient::ProcessTask(const LogSystem::TaskPayload& task) {    
     std::ifstream file(task.filename, std::ios::binary);
@@ -69,7 +72,11 @@ void WorkerClient::OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) {
             LogSystem::TaskPayload task;
             msg >> task;
             
-            ProcessTask(task);
+            // Pass processing to a thread
+            m_threadPool.Enqueue([this, task]() {
+                this->ProcessTask(task);
+            });
+
             break;
         }
         case LogSystem::LogSearchMsg::Server_JobFinished: {
