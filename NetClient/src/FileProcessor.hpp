@@ -41,12 +41,22 @@ public:
             }
         }
 
-        // Now we can read
+        // One line was skipped because it was read in previous chubk
         std::string line;
 
         uint64_t currentPos = static_cast<uint64_t>(file.tellg());
 
-        std::regex pattern(task.keyword);
+        std::regex pattern;
+
+        // Asign pattern from task keyword and validate
+        try {
+            pattern = std::regex(task.keyword);
+        }
+        catch (const std::regex_error& e) {
+            std::cout << "[WORKER] Invalid regex pattern: " << task.keyword << " (" << e.what() << ")\n";
+            onTaskDone();
+            return;
+        }
         
         while (currentPos <= endByte && std::getline(file, line)) {
             // For Windows format (CRLF) delete '\r'
