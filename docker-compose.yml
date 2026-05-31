@@ -1,0 +1,23 @@
+services:
+  master-node:
+    build:
+      context: . # directory from which we build
+      dockerfile: Dockerfile.master
+    ports:
+      - "60000:60000"
+    tty: true
+  worker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    depends_on:
+      - master-node
+    tty: true # -it option
+  worker-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    depends_on:
+      - master-node
+    tty: true # -it option
+
