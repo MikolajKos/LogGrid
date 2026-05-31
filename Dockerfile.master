@@ -1,0 +1,28 @@
+# ====================================================
+# BUILDER (intermediate image)
+# ====================================================
+
+FROM ubuntu:26.04 AS builder
+
+# set a directory for the app
+WORKDIR /usr/src/app
+
+RUN apt-get update && apt-get install -y cmake g++ make ninja-build
+
+# move contents of current dir to chosen workdir
+COPY . .
+
+# build project
+RUN mkdir build && cd build && cmake .. -G "Ninja" && ninja
+
+# ====================================================
+# MASTER IMAGE
+# ====================================================
+
+FROM ubuntu:26.04
+WORKDIR /usr/src/app
+# copy only master executable
+COPY --from=builder /usr/src/app/build/NetServer/NetServerApp .
+
+# start server on docker run
+CMD ["./NetServerApp"]
