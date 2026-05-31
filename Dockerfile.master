@@ -16,7 +16,7 @@ COPY . .
 RUN mkdir build && cd build && cmake .. -G "Ninja" && ninja
 
 # ====================================================
-# WORKER IMAGE
+# MASTER IMAGE
 # ====================================================
 
 FROM ubuntu:26.04
@@ -24,5 +24,5 @@ WORKDIR /usr/src/app
 # copy only master executable
 COPY --from=builder /usr/src/app/build/NetServer/NetServerApp .
 
-# start client on docker run
+# start server on docker run
 CMD ["./NetServerApp"]
