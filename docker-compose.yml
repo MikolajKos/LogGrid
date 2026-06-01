@@ -6,6 +6,25 @@ services:
     ports:
       - "60000:60000"
     tty: true
+    volumes:
+      - shared_logs:/app/data:ro
+
+  # log generator
+  log-generator:
+    image: alpine:latest
+    volumes:
+      - shared_logs:/var/log/app_logs
+    # Używamy apostrofów '...' wokół całej komendy sh - zero ukośników!
+    command: >
+      /bin/sh -c '
+      echo "Generating text file for LogGrid..." &&
+      mkdir -p /var/log/app_logs &&
+      for i in $$(seq 1 5000); do 
+        echo "[ $$(date -Iseconds) ] [INFO] Line $$i: Processing user data..." >> /var/log/app_logs/sample.log; 
+      done &&
+      echo "File ready!" &&
+      tail -f /dev/null'
+
   worker-1:
     build:
       context: .
@@ -13,6 +32,9 @@ services:
     depends_on:
       - master-node
     tty: true # -it option
+    volumes:
+      - shared_logs:/app/data:ro # read only
+
   worker-2:
     build:
       context: .
@@ -20,4 +42,9 @@ services:
     depends_on:
       - master-node
     tty: true # -it option
+    volumes:
+      - shared_logs:/app/data:ro # read only
 
+# log volume
+volumes:
+  shared_logs:
