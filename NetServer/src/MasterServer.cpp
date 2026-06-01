@@ -132,8 +132,17 @@ void MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSyst
         msg.header.id = LogSystem::LogSearchMsg::Server_JobFinished;
 
         client->Send(msg);
-
         std::cout << "[MASTER] No more tasks. Notified Worker ID: " << client->GetID() << " to shut down.\n";
+
+        while (!m_idleWorkers.empty()) {
+            auto idleClient = m_idleWorkers.front();
+            m_idleWorkers.pop();
+
+            idleClient->Send(msg);
+            std::cout << "[MASTER] Waking up idle Worker ID: " << idleClient->GetID() << " to shut down\n";
+        }
+
+        std::cout << "[MASTER] All workers shut down. Search is COMPLETE!\n";
     }
 }
 

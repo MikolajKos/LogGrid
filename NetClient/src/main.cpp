@@ -17,7 +17,7 @@ int main() {
 
 #ifdef DOCKER_RUN
     worker.Connect(DOCKER_MASTER_IP, 60000);
-#elif define(LOCAL_RUN)
+#elif defined(LOCAL_RUN)
     worker.Connect(LOOPBACK, 60000);
 #else
     ASSERT("No build enviroment was defined")
