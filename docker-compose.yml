@@ -17,7 +17,7 @@ services:
     # Używamy apostrofów '...' wokół całej komendy sh - zero ukośników!
     command: >
       /bin/sh -c '
-      echo "Generowanie pliku testowego dla LogGrid..." &&
+      echo "Generating text file for LogGrid..." &&
       mkdir -p /var/log/app_logs &&
       for i in $$(seq 1 5000); do 
         echo "[ $$(date -Iseconds) ] [INFO] Line $$i: Processing user data..." >> /var/log/app_logs/sample.log; 
