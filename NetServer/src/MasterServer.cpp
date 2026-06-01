@@ -4,8 +4,16 @@
 
 #include "MasterServer.hpp"
 
-// 10MB chunk size
-const uint64_t CHUNK_SIZE = 10 * 1024 * 1024;
+#define DOCKER_DEBUG
+
+#ifdef DOCKER_DEBUG
+    // 10 KB chunk size
+    const uint64_t CHUNK_SIZE = 10 * 1024;
+#else
+    // 10MB chunk size
+    const uint64_t CHUNK_SIZE = 10 * 1024 * 1024;
+#endif
+
 
 MasterServer::MasterServer(uint16_t port)
     : olc::net::server_interface<LogSystem::LogSearchMsg>(port) {}
@@ -52,7 +60,7 @@ void MasterServer::StartSearch(const std::string& filepath, const std::string& k
 }
 
 bool MasterServer::OnClientConnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
-    std::cout << "[MASTER] New client connect with ID: " << client->GetID() << "\n";
+    std::cout << "[MASTER] New connection attempt\n";
     return true; // Accept the connection 
 }
 
