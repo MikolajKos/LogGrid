@@ -4,8 +4,16 @@
 
 #include "MasterServer.hpp"
 
-// 10MB chunk size
-const uint64_t CHUNK_SIZE = 10 * 1024 * 1024;
+#define DOCKER_DEBUG
+
+#ifdef DOCKER_DEBUG
+    // 10 KB chunk size
+    const uint64_t CHUNK_SIZE = 10 * 1024;
+#else
+    // 10MB chunk size
+    const uint64_t CHUNK_SIZE = 10 * 1024 * 1024;
+#endif
+
 
 MasterServer::MasterServer(uint16_t port)
     : olc::net::server_interface<LogSystem::LogSearchMsg>(port) {}
@@ -52,7 +60,7 @@ void MasterServer::StartSearch(const std::string& filepath, const std::string& k
 }
 
 bool MasterServer::OnClientConnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
-    std::cout << "[MASTER] New client connect with ID: " << client->GetID() << "\n";
+    std::cout << "[MASTER] New connection attempt\n";
     return true; // Accept the connection 
 }
 
@@ -124,8 +132,17 @@ void MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSyst
         msg.header.id = LogSystem::LogSearchMsg::Server_JobFinished;
 
         client->Send(msg);
-
         std::cout << "[MASTER] No more tasks. Notified Worker ID: " << client->GetID() << " to shut down.\n";
+
+        while (!m_idleWorkers.empty()) {
+            auto idleClient = m_idleWorkers.front();
+            m_idleWorkers.pop();
+
+            idleClient->Send(msg);
+            std::cout << "[MASTER] Waking up idle Worker ID: " << idleClient->GetID() << " to shut down\n";
+        }
+
+        std::cout << "[MASTER] All workers shut down. Search is COMPLETE!\n";
     }
 }
 

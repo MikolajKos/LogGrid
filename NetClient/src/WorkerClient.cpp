@@ -31,6 +31,9 @@ void WorkerClient::OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) {
             break;
         }
         case LogSystem::LogSearchMsg::Server_JobFinished: {
+            std::cout << "[WORKER] Job finished message received. Shutting down...\n";
+            Disconnect();
+
             break;
         }
         default: {
