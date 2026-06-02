@@ -19,7 +19,6 @@ MasterServer::MasterServer(uint16_t port)
     : olc::net::server_interface<LogSystem::LogSearchMsg>(port) {}
 
 void MasterServer::AddTask(const LogSystem::TaskPayload& task) {
-    std::lock_guard<std::mutex> lock(m_stateMutex);
     m_pendingTasks.push_back(task);
     std::cout << "[MASTER] Added task for file: " << task.filename << "\n";
 }
@@ -41,6 +40,9 @@ void MasterServer::StartSearch(const std::string& filepath, const std::string& k
     strncpy(task.keyword, keyword.c_str(), sizeof(task.keyword));
     task.keyword[sizeof(task.keyword) - 1] = '\0';
     
+    // Lock before add task
+    std::lock_guard<std::mutex> lock(m_stateMutex);
+
     while (true) {
         if ((currentByte + CHUNK_SIZE) >= fileSize) {
             task.start_line = currentByte;
