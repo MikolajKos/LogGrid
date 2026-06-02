@@ -2,6 +2,7 @@
 #define COMMAND_HPP
 
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -13,12 +14,18 @@ enum class ArgType {
     Remainder
 };
 
+struct CommandMetadata {
+    std::string name;
+    std::string syntax;
+    std::string description;
+};
+
 class Command {
 public:
-    Command(std::initializer_list<ArgType> expectedArgs) : m_expectedArgs(expectedArgs) {};
+    Command(CommandMetadata meta, std::initializer_list<ArgType> expectedArgs) : m_meta(std::move(meta)), m_expectedArgs(expectedArgs) {};
     virtual ~Command() = default;
 
-protected:
+public:
     virtual void Execute(MasterServer& server) = 0;
 
     bool ValidateAndParse(const std::string& rawArgs) {
@@ -29,14 +36,15 @@ protected:
 
         for (size_t i = 0; i < m_expectedArgs.size(); ++i) {
             ArgType expectedType = m_expectedArgs[i];
-            
-            // if arg is expected but stringstream empty, return false
-            if (!(ss >> currentToken)) {
-                std::cout << "[ERROR] Missing argument\n";
-                return false;
-            }
-
+                        
             if (expectedType == ArgType::Word || expectedType == ArgType::Integer) {
+                // if arg is expected but stringstream empty, return false
+                if (!(ss >> currentToken)) {
+                    std::cout << "[ERROR] Missing argument for " << m_meta.name << "\n";
+                    std::cout << "Usage: " << m_meta.name << " " << m_meta.syntax << "\n";
+                    return false;
+                }
+
                 if (expectedType == ArgType::Word) {
                     m_parsedArgs.push_back(currentToken);
                 }
@@ -51,20 +59,24 @@ protected:
                 }
             }
             else if (expectedType == ArgType::Remainder) {
-                std::string word;
+                // Read whats left
+                std::getline(ss >> std::ws, currentToken);
 
-                // Read all whats left
-                while (ss.rdbuf()->in_avail() != 0) {
-                    ss >> word;
-                    currentToken += word;
+                if (currentToken.empty()) {
+                    std::cout << "[ERROR] Missing argument for " << m_meta.name << "\n";
+                    std::cout << "Usage: " << m_meta.name << " " << m_meta.syntax << "\n";
+                    return false;
                 }
-
+                
                 m_parsedArgs.push_back(currentToken);
             }
         }
 
         return true;
     };
+
+    // Access method that is being used in help command
+    const CommandMetadata& GetCommandMetadata() const { return m_meta; }
 
 private:
     bool IsInteger(const std::string& str) {
@@ -73,10 +85,12 @@ private:
         
         return !str.empty() && it == str.end();
     }
+
 protected:
     std::vector<std::string> m_parsedArgs;
 private:
     std::vector<ArgType> m_expectedArgs;
+    CommandMetadata m_meta;
 };
 
 #endif // COMMAND_HPP
