@@ -44,6 +44,27 @@ Starting the entire distributed architecture takes only seconds:
    docker compose logs -f
    ```
 
+## Status
+
+> **Work in Progress** — core networking and task distribution are functional.
+
+### Done
+- [x] Async TCP networking layer (Asio `io_context`, non-blocking I/O)
+- [x] Master-Worker task distribution protocol
+- [x] Fault Tolerance — task reclaim on Worker disconnect
+- [x] Byte-aligned chunk splitting (correct line boundary detection)
+
+### In Progress
+- [ ] **Result aggregation** — Master currently receives `Worker_FoundLine` messages
+      but does not yet collect and return final results to the caller
+- [ ] **Worker thread pool** — currently processes one chunk on a single thread;
+      planned: `std::thread::hardware_concurrency() - 1` threads to avoid
+      starving the main ASIO message-receive thread
+
+### Planned
+- [ ] Cloud deployment on AWS (EC2 instances as Worker nodes)
+
+
 ## Acknowledgments
 
 The foundational networking layer (socket management, asynchronous thread-safe queues) is based on the `olc::net` architecture by [javidx9 (OneLoneCoder)](https://github.com/OneLoneCoder). `LogGrid` extends this core with a custom application protocol, robust fault tolerance, and multi-threaded data processing.
