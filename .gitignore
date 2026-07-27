@@ -69,3 +69,6 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# Local dev notes (personal, not for repo)
+DEV_NOTES.md

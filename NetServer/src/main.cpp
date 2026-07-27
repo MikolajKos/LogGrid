@@ -14,7 +14,7 @@ int main() {
     server.Start();
     std::cout << "[MASTER] The server is running and waiting for Workers\n";
     
-    server.StartSearch("/app/data/sample.log", "2121");
+    auto future = server.StartSearch("/app/data/sample.log", "2121");
     
     while(true) {
         server.Update();

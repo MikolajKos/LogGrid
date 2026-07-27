@@ -20,14 +20,21 @@ namespace LogSystem {
     // I chose 64 unsigned bit number over 32, 
     // because 32 bit number alows to read maximum of 4GB file
     struct TaskPayload {
-        char keyword[64];       // Search criteria
-        char filename[128];
+        uint64_t search_id;
         uint64_t start_line;    // Line offset
         uint64_t end_line;
+        char keyword[64];       // Search criteria
+        char filename[128];
     };
 
     struct ResultPayload {
+        uint64_t search_id;
         char text[256];
+    };
+
+    struct SearchResult {
+        uint64_t search_id;
+        std::vector<std::string> lines;
     };
 }
 

@@ -15,7 +15,7 @@ protected:
     void OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) override;
 
 public:
-    void SendMessage(const LogSystem::LogSearchMsg msgType, const std::string& line = std::string());
+    void SendMessage(const LogSystem::LogSearchMsg msgType, const std::string& line = std::string(), const uint64_t searchId = 0);
 
 private:
     ThreadPool m_threadPool;

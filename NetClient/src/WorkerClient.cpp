@@ -21,9 +21,11 @@ void WorkerClient::OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) {
             
             // Pass processing to a thread
             m_threadPool.Enqueue([this, task]() {
+                uint64_t searchId = task.search_id;
+                
                 FileProcessor::SearchTask(
                     task,
-                    [this](const std::string& line) { this->SendMessage(LogSystem::LogSearchMsg::Worker_FoundLine, line); },
+                    [this, searchId](const std::string& line) { this->SendMessage(LogSystem::LogSearchMsg::Worker_FoundLine, line, searchId); },
                     [this]() { this->SendMessage(LogSystem::LogSearchMsg::Worker_TaskDone); }
                 );
             });
@@ -43,11 +45,11 @@ void WorkerClient::OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) {
     }
 }
 
-void WorkerClient::SendMessage(const LogSystem::LogSearchMsg msgType, const std::string& line) {
+void WorkerClient::SendMessage(const LogSystem::LogSearchMsg msgType, const std::string& line, const uint64_t searchId) {
     olc::net::message<LogSystem::LogSearchMsg> msg;
 
     msg.header.id = msgType;
-
+    
     if (!line.empty()) {
         // Create payload structure
         LogSystem::ResultPayload payload;
@@ -58,6 +60,8 @@ void WorkerClient::SendMessage(const LogSystem::LogSearchMsg msgType, const std:
         // sizeof - 1 because 255 is last index not 256! Rookie mistake
         payload.text[sizeof(payload.text) - 1] = '\0';
 
+        payload.search_id = searchId;
+        
         msg << payload;
     }
 

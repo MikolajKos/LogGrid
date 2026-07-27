@@ -6,9 +6,17 @@
 #include <unordered_map>
 #include <mutex>
 #include <memory>
+#include <future>
 
 #include "olc_net.hpp"
 #include "LogSearchCommon.hpp"
+
+struct SearchSession {
+    std::promise<LogSystem::SearchResult> promise;
+    LogSystem::SearchResult result;
+    int chunks_total = 0;
+    int chunks_done = 0;
+};
 
 /**
  * @class MasterServer
@@ -35,7 +43,7 @@ public:
      */
     void AddTask(const LogSystem::TaskPayload& task);
 
-    void StartSearch(const std::string& filepath, const std::string& keyword);
+    std::future<LogSystem::SearchResult> StartSearch(const std::string& filepath, const std::string& keyword);
 
 protected:
     /**
@@ -88,6 +96,9 @@ private:
      * If there are no pending tasks but some workers are still working. 
      */
     std::queue<std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>>> m_idleWorkers;
+
+    std::unordered_map<uint64_t, SearchSession> m_sessions;
+    uint64_t m_nextSearchId = 0;
 };
 
 #endif // MASTER_SERVER_HPP
