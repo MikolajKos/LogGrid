@@ -81,9 +81,9 @@ private:
 
     /** 
      * @brief Map tracking tasks currently being processed.
-     * Key is the client ID, Value is the assigned task payload. 
+     * Key is the client ID, Value is the map of assigned tasks for each worker.
      */
-    std::unordered_map<uint32_t, LogSystem::TaskPayload> m_inFlightTasks;
+    std::unordered_map<uint32_t, std::unordered_map<uint64_t, LogSystem::TaskPayload>> m_inFlightTasks;
 
     /** 
      * @brief Workers waiting for job to be given.
@@ -92,7 +92,11 @@ private:
     std::queue<std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>>> m_idleWorkers;
 
     std::unordered_map<uint64_t, SearchSession> m_sessions;
+    
+    std::unordered_map<uint32_t, uint64_t> m_workersThreads;
+    
     uint64_t m_nextSearchId = 0;
+    uint64_t m_nextTaskId = 0;
 };
 
 #endif // MASTER_SERVER_HPP
