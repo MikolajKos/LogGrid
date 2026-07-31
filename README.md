@@ -12,7 +12,7 @@ The system is built on an event-driven, push-based asynchronous TCP/IP architect
 
 * **Master (Server):** The central coordinator. It manages the task queue, distributes file chunks, and aggregates search results. It features robust **Built-in Fault Tolerance** – if an assigned Worker crashes or disconnects, its in-flight task is immediately reclaimed and seamlessly redistributed to another active node.
 * **Worker (Client):** A highly optimized, stateless compute node. It connects to the Master, requests work, and utilizes a custom `ThreadPool` (`std::thread::hardware_concurrency`) for parallel file parsing, streaming matching log lines back to the Master in real-time.
-* **Log Generator / Shared Volume:** (Under Implementation) A dynamic ingestion layer where microservices write live logs to a shared Docker Volume, allowing Workers to process incoming data on the fly.
+* **Log Generator / Shared Volume:** A dynamic ingestion layer where microservices write live logs to a shared Docker Volume, allowing Workers to process incoming data on the fly. A Docker healthcheck ensures the Master starts only after the log file is fully generated.
 
 ## Key Features
 
@@ -46,22 +46,21 @@ Starting the entire distributed architecture takes only seconds:
 
 ## Status
 
-> **Work in Progress** — core networking and task distribution are functional.
+> **Work in Progress** — core networking, task distribution and result aggregation are functional.
 
 ### Done
 - [x] Async TCP networking layer (Asio `io_context`, non-blocking I/O)
 - [x] Master-Worker task distribution protocol
 - [x] Fault Tolerance — task reclaim on Worker disconnect
 - [x] Byte-aligned chunk splitting (correct line boundary detection)
-
-### In Progress
-- [ ] **Result aggregation** — Master currently receives `Worker_FoundLine` messages
-      but does not yet collect and return final results to the caller
-- [ ] **Worker thread pool** — currently processes one chunk on a single thread;
-      planned: `std::thread::hardware_concurrency() - 1` threads to avoid
-      starving the main ASIO message-receive thread
+- [x] Result aggregation — `promise/future` per search session, results delivered to caller
+- [x] Worker ThreadPool — parallel chunk processing via `std::thread::hardware_concurrency()`
+- [x] Docker healthcheck — Master waits for log file to be fully generated before starting
 
 ### Planned
+- [ ] Worker pipeline — Master dispatches multiple tasks ahead of time, Worker queues them internally
+- [ ] Worker ThreadPool optimization — use `hardware_concurrency() - 1` threads to avoid starving the ASIO I/O thread
+- [ ] HTTP API — Master exposes `/search` endpoint, replacing hardcoded `StartSearch` call
 - [ ] Cloud deployment on AWS (EC2 instances as Worker nodes)
 
 
