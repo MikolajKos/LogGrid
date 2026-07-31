@@ -1,6 +1,7 @@
 #include <iostream>
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 #include "MasterServer.hpp"
 
@@ -17,12 +18,6 @@
 
 MasterServer::MasterServer(uint16_t port)
     : olc::net::server_interface<LogSystem::LogSearchMsg>(port) {}
-
-void MasterServer::AddTask(const LogSystem::TaskPayload& task) {
-    std::lock_guard<std::mutex> lock(m_stateMutex);
-    m_pendingTasks.push_back(task);
-    std::cout << "[MASTER] Added task for file: " << task.filename << "\n";
-}
 
 std::future<LogSystem::SearchResult> MasterServer::StartSearch(const std::string& filepath, const std::string& keyword) {
     if (!std::filesystem::exists(filepath))
@@ -50,25 +45,37 @@ std::future<LogSystem::SearchResult> MasterServer::StartSearch(const std::string
 
     strncpy(task.keyword, keyword.c_str(), sizeof(task.keyword));
     task.keyword[sizeof(task.keyword) - 1] = '\0';
-    
-    while (true) {
-        if ((currentByte + CHUNK_SIZE) >= fileSize) {
+
+    std::vector<std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>>> idleWorkers;
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+
+        while (true) {
+            if ((currentByte + CHUNK_SIZE) >= fileSize) {
+                task.start_line = currentByte;
+                task.end_line = fileSize;
+                m_pendingTasks.push_back(task);
+                break;
+            }
+
             task.start_line = currentByte;
-            task.end_line = fileSize;
-            AddTask(task);
-            break;
+            task.end_line = currentByte + CHUNK_SIZE;
+            m_pendingTasks.push_back(task);
+            
+            // Update next chunk start position
+            currentByte += CHUNK_SIZE;
         }
 
-        task.start_line = currentByte;
-        task.end_line = currentByte + CHUNK_SIZE;
-
-        AddTask(task);
-        
-        // Update next chunk start position
-        currentByte += CHUNK_SIZE;
+        while (!m_idleWorkers.empty()) {
+            idleWorkers.push_back(m_idleWorkers.front());
+            m_idleWorkers.pop();
+        }
     }
 
     m_nextSearchId++;
+    for (auto worker : idleWorkers) {
+        DispatchNextTask(worker);
+    }
 
     return future;
 }
