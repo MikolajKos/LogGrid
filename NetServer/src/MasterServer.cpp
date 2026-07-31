@@ -24,17 +24,27 @@ void MasterServer::AddTask(const LogSystem::TaskPayload& task) {
     std::cout << "[MASTER] Added task for file: " << task.filename << "\n";
 }
 
-void MasterServer::StartSearch(const std::string& filepath, const std::string& keyword) {
-    if (!std::filesystem::exists(filepath)) {
-        std::cout << "[MASTER] Could not open desired file: " << filepath << "\n";
-        return;
-    }
+std::future<LogSystem::SearchResult> MasterServer::StartSearch(const std::string& filepath, const std::string& keyword) {
+    if (!std::filesystem::exists(filepath))
+        throw std::runtime_error("[MASTER] File not found: " + filepath);
+
+    // Set Search Session
+    SearchSession session;
+
+    session.result.search_id = m_nextSearchId;    
+    std::future<LogSystem::SearchResult> future = session.promise.get_future();
+    
+    m_sessions[m_nextSearchId] = std::move(session);
 
     uint64_t fileSize = std::filesystem::file_size(filepath);
     uint64_t currentByte = 0;
 
+    m_sessions[m_nextSearchId].chunks_total = (fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE;
+
     LogSystem::TaskPayload task;
     
+    task.search_id = m_nextSearchId;
+
     strncpy(task.filename, filepath.c_str(), sizeof(task.filename));
     task.filename[sizeof(task.filename) - 1] = '\0';
 
@@ -57,6 +67,10 @@ void MasterServer::StartSearch(const std::string& filepath, const std::string& k
         // Update next chunk start position
         currentByte += CHUNK_SIZE;
     }
+
+    m_nextSearchId++;
+
+    return future;
 }
 
 bool MasterServer::OnClientConnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
@@ -160,23 +174,52 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
             LogSystem::ResultPayload result;
             msg >> result;
 
-            // In here we should store found line and worker continues its job
-            std::cout << "[MASTER] Worker: " << client->GetID() << ". Found New Line: " << result.text << "\n";
+            {
+                std::lock_guard<std::mutex> lock(m_stateMutex);
+                auto it = m_sessions.find(result.search_id);
+                if (it != m_sessions.end())
+                    it->second.result.lines.push_back(result.text);
+                else
+                    std::cout << "[MASTER] Worker_FoundLine: unknown search_id: " << result.search_id << "\n";
+            }
 
             break;
         }
         case LogSystem::LogSearchMsg::Worker_TaskDone: {
             std::cout << "[MASTER] Worker: " << client->GetID() << " finished asigned task\n";
 
+            uint64_t searchId = 0;
+            bool searchComplete = false;
+            LogSystem::SearchResult completedResult;
+            std:: promise<LogSystem::SearchResult> completedPromise;
+
             {
                 std::lock_guard<std::mutex> lock(m_stateMutex);
 
                 auto it = m_inFlightTasks.find(client->GetID());
-                if (it != m_inFlightTasks.end())
+                if (it != m_inFlightTasks.end()) {
+                    searchId = it->second.search_id;
                     m_inFlightTasks.erase(it);
+
+                    auto& session = m_sessions[searchId];
+                    session.chunks_done++;
+
+                    if (session.chunks_done == session.chunks_total) {
+                        searchComplete = true;
+                        completedResult = std::move(session.result);
+                        completedPromise = std::move(session.promise);
+
+                        m_sessions.erase(searchId);
+                    }
+                }
             }
 
             DispatchNextTask(client);
+
+            if (searchComplete) {
+                completedPromise.set_value(std::move(completedResult));
+                std::cout << "[MASTER] Search ID: " << searchId << " complete. Results delivered.\n";
+            }
             
             break;
         }

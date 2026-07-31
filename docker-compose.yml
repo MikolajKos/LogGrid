@@ -8,22 +8,33 @@ services:
     tty: true
     volumes:
       - shared_logs:/app/data:ro
+    depends_on:
+      log-generator:
+        condition: service_healthy
 
   # log generator
   log-generator:
     image: alpine:latest
     volumes:
       - shared_logs:/var/log/app_logs
-    # Używamy apostrofów '...' wokół całej komendy sh - zero ukośników!
     command: >
       /bin/sh -c '
+      rm -f /var/log/app_logs/sample.log.ready &&
+      rm -f /var/log/app_logs/sample.log &&
       echo "Generating text file for LogGrid..." &&
       mkdir -p /var/log/app_logs &&
       for i in $$(seq 1 5000); do 
         echo "[ $$(date -Iseconds) ] [INFO] Line $$i: Processing user data..." >> /var/log/app_logs/sample.log; 
       done &&
+      touch /var/log/app_logs/sample.log.ready &&
       echo "File ready!" &&
       tail -f /dev/null'
+    healthcheck:
+      test: ["CMD", "test", "-f", "/var/log/app_logs/sample.log.ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
 
   worker-1:
     build:
