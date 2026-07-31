@@ -191,6 +191,7 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
             uint64_t searchId = 0;
             bool searchComplete = false;
             LogSystem::SearchResult completedResult;
+            std:: promise<LogSystem::SearchResult> completedPromise;
 
             {
                 std::lock_guard<std::mutex> lock(m_stateMutex);
@@ -206,6 +207,9 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
                     if (session.chunks_done == session.chunks_total) {
                         searchComplete = true;
                         completedResult = std::move(session.result);
+                        completedPromise = std::move(session.promise);
+
+                        m_sessions.erase(searchId);
                     }
                 }
             }
@@ -213,8 +217,7 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
             DispatchNextTask(client);
 
             if (searchComplete) {
-                m_sessions[searchId].promise.set_value(std::move(completedResult));
-                m_sessions.erase(searchId);
+                completedPromise.set_value(std::move(completedResult));
                 std::cout << "[MASTER] Search ID: " << searchId << " complete. Results delivered.\n";
             }
             

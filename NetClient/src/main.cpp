@@ -39,6 +39,11 @@ int main() {
         std::cout << "[WORKER] Connection established\n";
 
         while (worker.IsConnected()) {
+            if (worker.ShouldDisconnect()) {
+                worker.Disconnect();
+                break;
+            }
+
             std::this_thread::sleep_for(200ms);
         }
     }
