@@ -20,6 +20,8 @@ public:
     void SendMessage(const LogSystem::LogSearchMsg msgType, const std::string& line = std::string(), const uint64_t searchId = 0);
     bool ShouldDisconnect();
 private:
+    void SendHelloMessage();
+private:
     ThreadPool m_threadPool;
     std::atomic<bool> m_shouldDisconnect = false;
 };

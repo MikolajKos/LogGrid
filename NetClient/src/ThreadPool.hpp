@@ -53,6 +53,10 @@ public:
         }
         m_conditionVar.notify_one();
     }
+
+    size_t Size() const {
+        return m_workerThreads.size();
+    }
     
 private:
     std::vector<std::jthread> m_workerThreads;

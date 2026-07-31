@@ -33,11 +33,6 @@ int main() {
     }
     
     if (worker.IsConnected()) {
-        // Connection [ACK]
-        worker.SendMessage(LogSystem::LogSearchMsg::Worker_Hello);
-
-        std::cout << "[WORKER] Connection established\n";
-
         while (worker.IsConnected()) {
             if (worker.ShouldDisconnect()) {
                 worker.Disconnect();

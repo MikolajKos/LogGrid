@@ -32,6 +32,10 @@ namespace LogSystem {
         char text[256];
     };
 
+    struct HelloMessage {
+        uint64_t threads_available;
+    };
+
     struct SearchResult {
         uint64_t search_id;
         std::vector<std::string> lines;
