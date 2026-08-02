@@ -59,9 +59,9 @@ Starting the entire distributed architecture takes only seconds:
 - [x] Docker healthcheck — Master waits for log file to be fully generated before starting
 - [x] Pipeline dispatch — Master dispatches N tasks per Worker simultaneously based on advertised thread count (`Worker_Hello` handshake); free slots tracked dynamically via `m_workersFreeSlots`
 - [x] Per-task ACK — `Worker_TaskDone` carries `task_id` for precise completion tracking with multiple in-flight tasks per Worker
+- [x] Worker ThreadPool optimization — use `hardware_concurrency() - 1` threads to avoid starving the ASIO I/O thread
 
 ### Planned
-- [ ] Worker ThreadPool optimization — use `hardware_concurrency() - 1` threads to avoid starving the ASIO I/O thread
 - [ ] HTTP API — Master exposes `/search` endpoint, replacing hardcoded `StartSearch` call
 - [ ] Cloud deployment on AWS (EC2 instances as Worker nodes)
 
