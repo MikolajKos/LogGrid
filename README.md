@@ -65,6 +65,41 @@ Starting the entire distributed architecture takes only seconds:
 - [ ] HTTP API — Master exposes `/search` endpoint, replacing hardcoded `StartSearch` call
 - [ ] Cloud deployment on AWS (EC2 instances as Worker nodes)
 
+## Structure
+```bash
+.
+├── CMakeLists.txt
+├── docker-compose.yml
+├── Dockerfile
+├── Dockerfile.master
+├── Dockerfile.worker
+├── NetClient
+│   ├── CMakeLists.txt
+│   └── src
+│       ├── FileProcessor.hpp
+│       ├── main.cpp
+│       ├── ThreadPool.hpp
+│       ├── WorkerClient.cpp
+│       └── WorkerClient.hpp
+├── NetCommon
+│   ├── CMakeLists.txt
+│   └── include
+│       ├── LogSearchCommon.hpp
+│       ├── net_client.hpp
+│       ├── net_common.hpp
+│       ├── net_connection.hpp
+│       ├── net_message.hpp
+│       ├── net_server.hpp
+│       ├── net_tsqueue.hpp
+│       └── olc_net.hpp
+├── NetServer
+│   ├── CMakeLists.txt
+│   └── src
+│       ├── main.cpp
+│       ├── MasterServer.cpp
+│       └── MasterServer.hpp
+└── README.md
+```
 
 ## Acknowledgments
 
