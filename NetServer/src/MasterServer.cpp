@@ -87,6 +87,7 @@ bool MasterServer::OnClientConnect(std::shared_ptr<olc::net::connection<LogSyste
 
 void MasterServer::OnClientDisconnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
     uint32_t clientID = client->GetID();
+    uint64_t threadsCount  = 0;
 
     std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> workerToWakeUp = nullptr;
     
@@ -110,21 +111,24 @@ void MasterServer::OnClientDisconnect(std::shared_ptr<olc::net::connection<LogSy
             if (!m_idleWorkers.empty()) {
                 workerToWakeUp = m_idleWorkers.front();
                 m_idleWorkers.pop();
+
+                threadsCount = m_workersFreeSlots[workerToWakeUp->GetID()];
             }
         }
     }
 
     // Asign job to new worker if exists
     if (workerToWakeUp) {
-        uint64_t threadsCount = m_workersThreads[workerToWakeUp->GetID()];
-
         for (uint64_t i = 0; i < threadsCount; ++i) {
-            DispatchNextTask(workerToWakeUp);
+            // If threads > tasks available
+            if (!DispatchNextTask(workerToWakeUp)) {
+                break;
+            }
         }
     }
 }
 
-void MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
+bool MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
     std::lock_guard<std::mutex> lock(m_stateMutex);
 
     if (!m_pendingTasks.empty()) {
@@ -137,6 +141,8 @@ void MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSyst
         task.task_id = ++m_nextTaskId;
         m_inFlightTasks[clientID][m_nextTaskId] = task;
 
+        m_workersFreeSlots[clientID]--;
+        
         // --- CREATING MESSAGE ---
         olc::net::message<LogSystem::LogSearchMsg> msg;
 
@@ -148,11 +154,15 @@ void MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSyst
         client->Send(msg);
 
         std::cout << "[MASTER] Dispatched task to Worker ID: " << clientID << "\n";
+
+        return true;
     }
     else if (!m_inFlightTasks.empty()) {
         m_idleWorkers.push(client);
 
         std::cout << "[MASTER] No tasks available. Worker ID: " << client->GetID() << " added to idle queue.\n";
+        
+        return false; // <- To avoid adding worker to idle queue multiple times
     }
     else {
         // Tell the client that the job is done
@@ -172,6 +182,8 @@ void MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSyst
         }
 
         std::cout << "[MASTER] All workers shut down. Search is COMPLETE!\n";
+
+        return false; // <- To avoid sending JobFinished msg multiple times
     }
 }
 
@@ -189,10 +201,13 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
             msg >> result;
             threadsCount = result.threads_available;
 
-            m_workersThreads[client->GetID()] = threadsCount;
+            m_workersFreeSlots[client->GetID()] = threadsCount;
 
             for (uint64_t i = 0; i < threadsCount; ++i) {
-                DispatchNextTask(client);
+                // If threads > tasks available
+                if (!DispatchNextTask(client)) {
+                    break;
+                }
             }
 
             break;
@@ -229,6 +244,9 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
             {
                 std::lock_guard<std::mutex> lock(m_stateMutex);
 
+                // Increase available worker threads by one
+                m_workersFreeSlots[client->GetID()]++;
+                
                 auto it = m_inFlightTasks.find(client->GetID());
                 if (it != m_inFlightTasks.end()) {
                     // Inner map contains all tasks assigned to a single worker

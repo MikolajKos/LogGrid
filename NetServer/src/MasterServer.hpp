@@ -73,7 +73,7 @@ private:
      * 
      * @param client Shared pointer to the client requesting work.
      */
-    void DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client);
+    bool DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client);
 
 private:
     std::mutex m_stateMutex;
@@ -93,7 +93,7 @@ private:
 
     std::unordered_map<uint64_t, SearchSession> m_sessions;
     
-    std::unordered_map<uint32_t, uint64_t> m_workersThreads;
+    std::unordered_map<uint32_t, uint64_t> m_workersFreeSlots;
     
     uint64_t m_nextSearchId = 0;
     uint64_t m_nextTaskId = 0;
