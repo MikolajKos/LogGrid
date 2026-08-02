@@ -6,7 +6,7 @@ If you're new to the project or to open source in general, look for issues tagge
 
 ---
 
-## ⚠️ Academic Notice
+## 🎓 Academic Notice
 
 LogGrid is currently an active **engineering thesis project**. To preserve academic integrity, the **core architectural components must be designed and implemented by the author independently**. This includes:
 
@@ -21,7 +21,7 @@ All other areas (see below) are open for community contributions without restric
 
 ---
 
-## ✅ Where Your Help Is Most Welcome
+## Where Your Help Is Most Welcome
 
 These areas are **fully open** for community contributions:
 
@@ -69,13 +69,17 @@ docker build -f Dockerfile.worker -t loggrid-worker .
 
 **Building locally without Docker (requires CMake ≥ 3.25 and a C++20 compiler):**
 ```bash
-cmake -B build -G Ninja
-cmake --build build
+cd LogGrid
+mkdir build
+cd build
+
+cmake .. -G "Ninja"
+cmake --build .
 ```
 
 ---
 
-## 🎨 Code Standards
+## Code Standards
 
 To keep the codebase consistent and maintainable, please follow these guidelines:
 
@@ -95,7 +99,7 @@ To keep the codebase consistent and maintainable, please follow these guidelines
 
 ---
 
-## 🔄 Pull Request Workflow
+## Pull Request Workflow
 
 1. **Fork** the repository and create your branch from `main`:
    ```bash
