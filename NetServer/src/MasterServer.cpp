@@ -87,37 +87,49 @@ bool MasterServer::OnClientConnect(std::shared_ptr<olc::net::connection<LogSyste
 
 void MasterServer::OnClientDisconnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
     uint32_t clientID = client->GetID();
-
-    std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> workerToWakeUp = nullptr;
     
     // Scope locked block
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
-
+        
         // Adding back task from disconnected client
         auto it = m_inFlightTasks.find(clientID);
-
+        
         if (it != m_inFlightTasks.end()) {
-            m_pendingTasks.push_front(it->second);
-
+            for (const auto& task : it->second) {
+                m_pendingTasks.push_front(task.second);
+            }
+            
             // Erasing old client because new one will be added
             m_inFlightTasks.erase(it);
-            
             std::cout << "[MASTER] Fault Tolerance triggered. Reclaimed task from lost Worker ID: " << clientID << "\n";
-
-            if (!m_idleWorkers.empty()) {
-                workerToWakeUp = m_idleWorkers.front();
-                m_idleWorkers.pop();
-            }
         }
     }
+    
+    while (true) {
+        std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> workerToWakeUp = nullptr;
+        uint64_t threadsCount  = 0;
 
-    // Asign job to new worker if exists
-    if (workerToWakeUp)
-        DispatchNextTask(workerToWakeUp);
+        {
+            std::lock_guard<std::mutex> lock(m_stateMutex);
+
+            if (m_pendingTasks.empty() || m_idleWorkers.empty())
+                break;
+
+            workerToWakeUp = m_idleWorkers.front();
+            m_idleWorkers.pop();
+
+            threadsCount = m_workersFreeSlots[workerToWakeUp->GetID()];
+        }
+
+        for (uint64_t i = 0; i < threadsCount; ++i) {
+            if (!DispatchNextTask(workerToWakeUp))
+                break;
+        }
+    }
 }
 
-void MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
+bool MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
     std::lock_guard<std::mutex> lock(m_stateMutex);
 
     if (!m_pendingTasks.empty()) {
@@ -126,9 +138,12 @@ void MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSyst
 
         uint32_t clientID = client->GetID();
         
-        // Register task in unordered_map for Fault Tolerance
-        m_inFlightTasks[clientID] = task;
+        // Register task with task id for worker
+        task.task_id = ++m_nextTaskId;
+        m_inFlightTasks[clientID][m_nextTaskId] = task;
 
+        m_workersFreeSlots[clientID]--;
+        
         // --- CREATING MESSAGE ---
         olc::net::message<LogSystem::LogSearchMsg> msg;
 
@@ -140,11 +155,15 @@ void MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSyst
         client->Send(msg);
 
         std::cout << "[MASTER] Dispatched task to Worker ID: " << clientID << "\n";
+
+        return true;
     }
     else if (!m_inFlightTasks.empty()) {
         m_idleWorkers.push(client);
 
         std::cout << "[MASTER] No tasks available. Worker ID: " << client->GetID() << " added to idle queue.\n";
+        
+        return false; // <- To avoid adding worker to idle queue multiple times
     }
     else {
         // Tell the client that the job is done
@@ -164,6 +183,8 @@ void MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSyst
         }
 
         std::cout << "[MASTER] All workers shut down. Search is COMPLETE!\n";
+
+        return false; // <- To avoid sending JobFinished msg multiple times
     }
 }
 
@@ -173,7 +194,22 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
     switch (msg.header.id) {
         case LogSystem::LogSearchMsg::Worker_Hello: {
             std::cout << "[MASTER] Hello message recived from Worker: " << client->GetID() << ". Asigning task\n";
-            DispatchNextTask(client);
+
+            // Available threads for worker
+            uint64_t threadsCount;
+            
+            LogSystem::HelloMessage result;
+            msg >> result;
+            threadsCount = result.threads_available;
+
+            m_workersFreeSlots[client->GetID()] = threadsCount;
+
+            for (uint64_t i = 0; i < threadsCount; ++i) {
+                // If threads > tasks available
+                if (!DispatchNextTask(client)) {
+                    break;
+                }
+            }
 
             break;
         }
@@ -195,18 +231,33 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
         case LogSystem::LogSearchMsg::Worker_TaskDone: {
             std::cout << "[MASTER] Worker: " << client->GetID() << " finished asigned task\n";
 
+            // Read message containing task id
+            LogSystem::TaskDoneResult result;
+            msg >> result;
+
+            uint64_t taskId = result.task_id;
+
             uint64_t searchId = 0;
             bool searchComplete = false;
             LogSystem::SearchResult completedResult;
-            std:: promise<LogSystem::SearchResult> completedPromise;
+            std::promise<LogSystem::SearchResult> completedPromise;
 
             {
                 std::lock_guard<std::mutex> lock(m_stateMutex);
 
+                // Increase available worker threads by one
+                m_workersFreeSlots[client->GetID()]++;
+                
                 auto it = m_inFlightTasks.find(client->GetID());
                 if (it != m_inFlightTasks.end()) {
-                    searchId = it->second.search_id;
-                    m_inFlightTasks.erase(it);
+                    // Inner map contains all tasks assigned to a single worker
+                    auto& innerMap = it->second;
+                    
+                    searchId = innerMap[taskId].search_id;
+                    innerMap.erase(taskId);
+                    
+                    if (innerMap.empty())
+                        m_inFlightTasks.erase(it);
 
                     auto& session = m_sessions[searchId];
                     session.chunks_done++;

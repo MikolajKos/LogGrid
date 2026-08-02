@@ -37,6 +37,12 @@ public:
 
     virtual ~MasterServer() = default;
 
+    /**
+     * @brief Adds a new search task to the pending queue.
+     * @param task The task payload defining the file chunk and search keyword.
+     */
+    void AddTask(const LogSystem::TaskPayload& task);
+
     std::future<LogSystem::SearchResult> StartSearch(const std::string& filepath, const std::string& keyword);
 
 protected:
@@ -73,7 +79,7 @@ private:
      * 
      * @param client Shared pointer to the client requesting work.
      */
-    void DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client);
+    bool DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client);
 
 private:
     std::mutex m_stateMutex;
@@ -81,9 +87,9 @@ private:
 
     /** 
      * @brief Map tracking tasks currently being processed.
-     * Key is the client ID, Value is the assigned task payload. 
+     * Key is the client ID, Value is the map of assigned tasks for each worker.
      */
-    std::unordered_map<uint32_t, LogSystem::TaskPayload> m_inFlightTasks;
+    std::unordered_map<uint32_t, std::unordered_map<uint64_t, LogSystem::TaskPayload>> m_inFlightTasks;
 
     /** 
      * @brief Workers waiting for job to be given.
@@ -92,7 +98,11 @@ private:
     std::queue<std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>>> m_idleWorkers;
 
     std::unordered_map<uint64_t, SearchSession> m_sessions;
+    
+    std::unordered_map<uint32_t, uint64_t> m_workersFreeSlots;
+    
     uint64_t m_nextSearchId = 0;
+    uint64_t m_nextTaskId = 0;
 };
 
 #endif // MASTER_SERVER_HPP

@@ -9,7 +9,7 @@
 
 // Constructor with ThreadPool initialization
 WorkerClient::WorkerClient()
-    : m_threadPool(std::thread::hardware_concurrency()) {}
+    : m_threadPool(std::thread::hardware_concurrency() - 1) {}
 
 void WorkerClient::OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) {
     switch (msg.header.id) {
@@ -19,14 +19,19 @@ void WorkerClient::OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) {
             LogSystem::TaskPayload task;
             msg >> task;
             
+            
             // Pass processing to a thread
             m_threadPool.Enqueue([this, task]() {
+                // searchId for session identification
                 uint64_t searchId = task.search_id;
+                
+                // Task id for TaskDone message
+                uint64_t taskId = task.task_id;
                 
                 FileProcessor::SearchTask(
                     task,
-                    [this, searchId](const std::string& line) { this->SendMessage(LogSystem::LogSearchMsg::Worker_FoundLine, line, searchId); },
-                    [this]() { this->SendMessage(LogSystem::LogSearchMsg::Worker_TaskDone); }
+                    [this, searchId](const std::string& line) { this->SendFoundLine(LogSystem::LogSearchMsg::Worker_FoundLine, line, searchId); },
+                    [this, taskId]() { this->SendTaskDone(taskId); }
                 );
             });
 
@@ -45,7 +50,7 @@ void WorkerClient::OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) {
     }
 }
 
-void WorkerClient::SendMessage(const LogSystem::LogSearchMsg msgType, const std::string& line, const uint64_t searchId) {
+void WorkerClient::SendFoundLine(const LogSystem::LogSearchMsg msgType, const std::string& line, const uint64_t searchId) {
     olc::net::message<LogSystem::LogSearchMsg> msg;
 
     msg.header.id = msgType;
@@ -68,8 +73,41 @@ void WorkerClient::SendMessage(const LogSystem::LogSearchMsg msgType, const std:
     Send(msg);
 }
 
-void WorkerClient::OnConnectionResult(bool bConnected) {
+void WorkerClient::SendHello() {
+    olc::net::message<LogSystem::LogSearchMsg> msg;
+    msg.header.id = LogSystem::LogSearchMsg::Worker_Hello;
+    
+    // Create payload
+    LogSystem::HelloMessage payload;
+    payload.threads_available = m_threadPool.Size();
 
+    msg << payload;
+
+    Send(msg);
+}
+
+void WorkerClient::SendTaskDone(uint64_t taskId) {
+    olc::net::message<LogSystem::LogSearchMsg> msg;
+    msg.header.id = LogSystem::LogSearchMsg::Worker_TaskDone;
+
+    // Create payload with task id
+    LogSystem::TaskDoneResult payload;
+    payload.task_id = taskId;
+
+    msg << payload;
+
+    Send(msg);
+}
+
+void WorkerClient::OnConnectionResult(bool bConnected) {
+    // [ACK] Message
+    if (bConnected) {
+        std::cout << "[WORKER] Connection established\n";
+        SendHello();
+    }
+    else {
+        std::cout << "[WORKER] Could not connect to the server\n";
+    }
 }
 
 bool WorkerClient::ShouldDisconnect() {

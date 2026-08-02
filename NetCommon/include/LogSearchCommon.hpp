@@ -21,6 +21,7 @@ namespace LogSystem {
     // because 32 bit number alows to read maximum of 4GB file
     struct TaskPayload {
         uint64_t search_id;
+        uint64_t task_id;
         uint64_t start_line;    // Line offset
         uint64_t end_line;
         char keyword[64];       // Search criteria
@@ -30,6 +31,14 @@ namespace LogSystem {
     struct ResultPayload {
         uint64_t search_id;
         char text[256];
+    };
+
+    struct HelloMessage {
+        uint64_t threads_available;
+    };
+
+    struct TaskDoneResult {
+        uint64_t task_id;
     };
 
     struct SearchResult {
