@@ -87,43 +87,44 @@ bool MasterServer::OnClientConnect(std::shared_ptr<olc::net::connection<LogSyste
 
 void MasterServer::OnClientDisconnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
     uint32_t clientID = client->GetID();
-    uint64_t threadsCount  = 0;
-
-    std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> workerToWakeUp = nullptr;
     
     // Scope locked block
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
-
+        
         // Adding back task from disconnected client
         auto it = m_inFlightTasks.find(clientID);
-
+        
         if (it != m_inFlightTasks.end()) {
             for (const auto& task : it->second) {
                 m_pendingTasks.push_front(task.second);
             }
-
+            
             // Erasing old client because new one will be added
             m_inFlightTasks.erase(it);
-            
             std::cout << "[MASTER] Fault Tolerance triggered. Reclaimed task from lost Worker ID: " << clientID << "\n";
-
-            if (!m_idleWorkers.empty()) {
-                workerToWakeUp = m_idleWorkers.front();
-                m_idleWorkers.pop();
-
-                threadsCount = m_workersFreeSlots[workerToWakeUp->GetID()];
-            }
         }
     }
+    
+    while (true) {
+        std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> workerToWakeUp = nullptr;
+        uint64_t threadsCount  = 0;
 
-    // Asign job to new worker if exists
-    if (workerToWakeUp) {
-        for (uint64_t i = 0; i < threadsCount; ++i) {
-            // If threads > tasks available
-            if (!DispatchNextTask(workerToWakeUp)) {
+        {
+            std::lock_guard<std::mutex> lock(m_stateMutex);
+
+            if (m_pendingTasks.empty() || m_idleWorkers.empty())
                 break;
-            }
+
+            workerToWakeUp = m_idleWorkers.front();
+            m_idleWorkers.pop();
+
+            threadsCount = m_workersFreeSlots[workerToWakeUp->GetID()];
+        }
+
+        for (uint64_t i = 0; i < threadsCount; ++i) {
+            if (!DispatchNextTask(workerToWakeUp))
+                break;
         }
     }
 }
