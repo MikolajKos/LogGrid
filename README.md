@@ -1,4 +1,4 @@
-# LogGrid (Work in Progress)
+# LogGrid
 
 **LogGrid** is a fast, distributed log analysis and search system inspired by **MapReduce** and **Splunk** architectures. It is designed for parallel processing of gigabytes of text files distributed across multiple stateless compute nodes. 
 
@@ -10,15 +10,16 @@ By leveraging modern C++ concurrency and a fully containerized ecosystem, LogGri
 
 The system is built on an event-driven, push-based asynchronous TCP/IP architecture, orchestrated entirely via **Docker Compose**. It implements a Producer-Consumer pattern for log ingestion and consists of the following core components:
 
-* **Master (Server):** The central coordinator. It manages the task queue, distributes file chunks, and aggregates search results. It features robust **Built-in Fault Tolerance** – if an assigned Worker crashes or disconnects, its in-flight task is immediately reclaimed and seamlessly redistributed to another active node.
-* **Worker (Client):** A highly optimized, stateless compute node. It connects to the Master, requests work, and utilizes a custom `ThreadPool` (`std::thread::hardware_concurrency`) for parallel file parsing, streaming matching log lines back to the Master in real-time.
+* **Master (Server):** The central coordinator. It manages the task queue, dispatches multiple tasks simultaneously to each Worker based on its thread count, and aggregates search results. It features robust **Built-in Fault Tolerance** – if a Worker crashes, all its in-flight tasks are immediately reclaimed and redistributed across all available idle Workers.
+* **Worker (Client):** A highly optimized, stateless compute node. On connect it advertises its thread capacity via a `Worker_Hello` handshake. The Master immediately saturates all Worker threads with parallel tasks. Each completed task is acknowledged by `task_id`, allowing multiple tasks to be in-flight simultaneously without ambiguity.
 * **Log Generator / Shared Volume:** A dynamic ingestion layer where microservices write live logs to a shared Docker Volume, allowing Workers to process incoming data on the fly. A Docker healthcheck ensures the Master starts only after the log file is fully generated.
 
 ## Key Features
 
 * **Infrastructure as Code (IaC):** Fully containerized using `Dockerfile` (Multi-stage builds) and `docker-compose.yml`. Starts the entire distributed cluster with a single command.
 * **Environment Agnostic:** Eliminates OS-level dependencies (Windows/Linux conflicts) through isolated Ubuntu-based containers and environment variable configuration.
-* **Zero-Downtime Reassignment:** Advanced TCP socket monitoring detects silent connection drops and instantly reassigns tasks.
+* **Pipeline Dispatch:** Master saturates all Worker threads immediately — dispatches N tasks per Worker on connect and replenishes after each `Worker_TaskDone` ACK, eliminating idle gaps between task completions.
+* **Zero-Downtime Reassignment:** When a Worker crashes, all its in-flight tasks are reclaimed at once and redistributed across every available idle Worker in a single pass.
 * **High-Performance I/O:** Asynchronous network streaming ensures the Master node is never blocked, even with dozens of connected Workers.
 
 ## Tech Stack
@@ -46,19 +47,20 @@ Starting the entire distributed architecture takes only seconds:
 
 ## Status
 
-> **Work in Progress** — core networking, task distribution and result aggregation are functional.
+> **Work in Progress** — core networking, pipeline dispatch, fault tolerance and result aggregation are functional.
 
 ### Done
 - [x] Async TCP networking layer (Asio `io_context`, non-blocking I/O)
 - [x] Master-Worker task distribution protocol
-- [x] Fault Tolerance — task reclaim on Worker disconnect
+- [x] Fault Tolerance — full reclaim of all in-flight tasks on Worker disconnect, redistributed across all idle Workers
 - [x] Byte-aligned chunk splitting (correct line boundary detection)
 - [x] Result aggregation — `promise/future` per search session, results delivered to caller
 - [x] Worker ThreadPool — parallel chunk processing via `std::thread::hardware_concurrency()`
 - [x] Docker healthcheck — Master waits for log file to be fully generated before starting
+- [x] Pipeline dispatch — Master dispatches N tasks per Worker simultaneously based on advertised thread count (`Worker_Hello` handshake); free slots tracked dynamically via `m_workersFreeSlots`
+- [x] Per-task ACK — `Worker_TaskDone` carries `task_id` for precise completion tracking with multiple in-flight tasks per Worker
 
 ### Planned
-- [ ] Worker pipeline — Master dispatches multiple tasks ahead of time, Worker queues them internally
 - [ ] Worker ThreadPool optimization — use `hardware_concurrency() - 1` threads to avoid starving the ASIO I/O thread
 - [ ] HTTP API — Master exposes `/search` endpoint, replacing hardcoded `StartSearch` call
 - [ ] Cloud deployment on AWS (EC2 instances as Worker nodes)
