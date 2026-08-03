@@ -8,8 +8,14 @@
 #include "FileProcessor.hpp"
 
 // Constructor with ThreadPool initialization
-WorkerClient::WorkerClient()
-    : m_threadPool(std::thread::hardware_concurrency() - 1) {}
+WorkerClient::WorkerClient() : m_threadPool([]() -> size_t {
+    size_t threadsAvailable = std::thread::hardware_concurrency();
+    
+    // prevent CPU oversubscription (N-1 Rule)
+    if (threadsAvailable > 1) threadsAvailable -= 1;
+
+    return threadsAvailable == 0 ? 4 : threadsAvailable;
+}()) {}
 
 void WorkerClient::OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) {
     switch (msg.header.id) {
