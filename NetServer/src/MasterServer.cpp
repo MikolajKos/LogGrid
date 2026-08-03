@@ -52,14 +52,14 @@ std::future<LogSystem::SearchResult> MasterServer::StartSearch(const std::string
 
         while (true) {
             if ((currentByte + CHUNK_SIZE) >= fileSize) {
-                task.start_line = currentByte;
-                task.end_line = fileSize;
+                task.start_offset = currentByte;
+                task.end_offset = fileSize;
                 m_pendingTasks.push_back(task);
                 break;
             }
 
-            task.start_line = currentByte;
-            task.end_line = currentByte + CHUNK_SIZE;
+            task.start_offset = currentByte;
+            task.end_offset = currentByte + CHUNK_SIZE;
             m_pendingTasks.push_back(task);
             
             // Update next chunk start position
