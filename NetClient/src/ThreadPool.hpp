@@ -10,7 +10,7 @@
 
 class ThreadPool {
 public:
-    ThreadPool(size_t numThreads) {
+    ThreadPool(size_t numThreads) : m_threadCount(numThreads) {
         for (size_t i = 0; i < numThreads; i++) {
             m_workerThreads.emplace_back([this]() {
                 while (true) {
@@ -57,12 +57,17 @@ public:
     size_t Size() const {
         return m_workerThreads.size();
     }
+
+    size_t GetThreadCount() const {
+        return m_threadCount;
+    }
     
 private:
     std::vector<std::jthread> m_workerThreads;
     std::queue<std::function<void()>> m_taskQueue;
     std::mutex m_queueState;
     std::condition_variable m_conditionVar;
+    size_t  m_threadCount;
     bool m_stop = false;
 };
 
