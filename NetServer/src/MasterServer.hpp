@@ -4,6 +4,7 @@
 #include <deque>
 #include <queue>
 #include <unordered_map>
+#include <unordered_set>
 #include <mutex>
 #include <memory>
 #include <future>
@@ -97,6 +98,16 @@ private:
      */
     std::queue<std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>>> m_idleWorkers;
 
+    /**
+     * @brief Set of client IDs currently present in m_idleWorkers.
+     *
+     * Prevents the same Worker from being enqueued multiple times when
+     * several of its threads complete tasks concurrently while the pending
+     * queue is empty. Must be kept in sync with m_idleWorkers:
+     * insert on push, erase on pop.
+     */
+    std::unordered_set<uint32_t> m_idleWorkersIds;
+    
     std::unordered_map<uint64_t, SearchSession> m_sessions;
     
     std::unordered_map<uint32_t, uint64_t> m_workersFreeSlots;
