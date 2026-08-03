@@ -23,8 +23,8 @@ public:
             return;
         }
         
-        uint64_t startByte = task.start_line;
-        uint64_t endByte = task.end_line;
+        uint64_t startByte = task.start_offset;
+        uint64_t endByte = task.end_offset;
 
         file.seekg(startByte);
 

@@ -22,8 +22,8 @@ namespace LogSystem {
     struct TaskPayload {
         uint64_t search_id;
         uint64_t task_id;
-        uint64_t start_line;    // Line offset
-        uint64_t end_line;
+        uint64_t start_offset;    // Line offset
+        uint64_t end_offset;
         char keyword[64];       // Search criteria
         char filename[128];
     };
