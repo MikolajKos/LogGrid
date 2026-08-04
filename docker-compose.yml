@@ -2,7 +2,8 @@ services:
   master-node:
     build:
       context: . # directory from which we build
-      dockerfile: Dockerfile.master
+      dockerfile: Dockerfile
+      target: master_image
     ports:
       - "60000:60000"
     tty: true
@@ -39,7 +40,8 @@ services:
   worker-1:
     build:
       context: .
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker_image
     depends_on:
       - master-node
     tty: true # -it option
@@ -49,7 +51,8 @@ services:
   worker-2:
     build:
       context: .
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker_image
     depends_on:
       - master-node
     tty: true # -it option
