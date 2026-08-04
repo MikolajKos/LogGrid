@@ -12,9 +12,29 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter)
 endif()
 
+# ==========================================
+# GoogleTest Setup
+# ==========================================
+
+include(FetchContent)
+
+FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG        v1.15.2
+)
+# Prevents compiler flags from being overwritten
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
+enable_testing()
+
+# ==========================================
+
 add_subdirectory(NetCommon)
 add_subdirectory(NetServer)
 add_subdirectory(NetClient)
+add_subdirectory(tests)
 
 # ==========================================
 # Doxygen Documentation Target
@@ -38,3 +58,5 @@ if(DOXYGEN_FOUND)
 else()
     message(WARNING "Doxygen not found - documentation will not be generated.")
 endif()
+
+# ==========================================
