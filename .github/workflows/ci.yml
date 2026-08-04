@@ -17,3 +17,7 @@ jobs:
 
     - name: Build Docker images
       run: docker compose build
+
+    # Run tests
+    - name: Run GTest suite
+      run: docker compose run --rm loggrid ctest --output-on-failure
