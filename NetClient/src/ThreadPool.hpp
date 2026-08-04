@@ -55,10 +55,6 @@ public:
     }
 
     size_t Size() const {
-        return m_workerThreads.size();
-    }
-
-    size_t GetThreadCount() const {
         return m_threadCount;
     }
     

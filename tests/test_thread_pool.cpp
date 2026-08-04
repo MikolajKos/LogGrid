@@ -18,7 +18,7 @@ protected:
 };
 
 TEST_P(ThreadPoolParamTest, InitializesCorrectNumberOfThreads) {
-    EXPECT_EQ(pool->GetThreadCount(), GetParam().expectedThreads);
+    EXPECT_EQ(pool->Size(), GetParam().expectedThreads);
 }
 
 INSTANTIATE_TEST_SUITE_P(

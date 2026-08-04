@@ -7,7 +7,7 @@ FROM ubuntu:26.04 AS builder
 # set a directory for the app
 WORKDIR /usr/src/app
 
-RUN apt-get update && apt-get install -y cmake g++ make ninja-build
+RUN apt-get update && apt-get install -y cmake g++ make ninja-build git
 
 # move contents of current dir to chosen workdir
 COPY . .
