@@ -42,3 +42,15 @@ COPY --from=builder /usr/src/app/build/NetClient/NetClientApp .
 
 # start client on docker run
 CMD ["./NetClientApp"]
+
+# ====================================================
+# TEST IMAGE
+# ====================================================
+
+FROM ubuntu:26.04 AS test_image
+
+WORKDIR /usr/src/app
+# copy only test binary
+COPY --from=builder /usr/src/app/build/tests/LogGridTests .
+
+CMD ["./LogGridTests"]

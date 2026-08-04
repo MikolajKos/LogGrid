@@ -19,5 +19,8 @@ jobs:
       run: docker compose build
 
     # Run tests
+    - name: Build test image
+      run: docker build --target test_image -t loggrid-tests .
+
     - name: Run GTest suite
-      run: docker compose run --rm master-node ./LogGridTests
+      run: docker run --rm loggrid-tests
