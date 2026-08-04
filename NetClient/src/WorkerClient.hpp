@@ -17,7 +17,8 @@ protected:
     void OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) override;
 
 public:
-bool ShouldDisconnect();
+    bool ShouldDisconnect();
+    static size_t CalculateThreadCount(size_t threads);
 private:
     void SendFoundLine(const LogSystem::LogSearchMsg msgType, const std::string& line = std::string(), const uint64_t searchId = 0);
     void SendHello();
