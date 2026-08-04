@@ -1,6 +1,9 @@
 add_executable(LogGridTests
     test_thread_pool.cpp
     test_file_processor.cpp
+    test_worker_client.cpp
+
+    ${CMAKE_SOURCE_DIR}/NetClient/src/WorkerClient.cpp
 )
 
 target_link_libraries(LogGridTests

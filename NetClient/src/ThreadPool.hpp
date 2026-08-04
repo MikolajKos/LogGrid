@@ -59,12 +59,14 @@ public:
     }
     
 private:
-    std::vector<std::jthread> m_workerThreads;
     std::queue<std::function<void()>> m_taskQueue;
     std::mutex m_queueState;
     std::condition_variable m_conditionVar;
     size_t  m_threadCount;
     bool m_stop = false;
+
+    // Threads vector has to be deleted first
+    std::vector<std::jthread> m_workerThreads;
 };
 
 #endif // THREAD_POOL_HPP
