@@ -20,4 +20,4 @@ jobs:
 
     # Run tests
     - name: Run GTest suite
-      run: docker compose run --rm master-node ctest --output-on-failure
+      run: docker compose run --rm master-node /app/build/tests/LogGridTests
