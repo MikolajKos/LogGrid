@@ -73,7 +73,7 @@ if(ENABLE_COVERAGE)
                 "${CMAKE_SOURCE_DIR}/external/*"
                 "${CMAKE_SOURCE_DIR}/tests/*"
                 --output-file ${COVERAGE_DIR}/coverage_filtered.info
-                --ignore-errors unused
+                --ignore-errors unused,empty
         # 5. HTML report (also prints summary)
         COMMAND ${GENHTML} ${COVERAGE_DIR}/coverage_filtered.info
                 --output-directory ${COVERAGE_DIR}/html
