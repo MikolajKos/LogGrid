@@ -65,7 +65,7 @@ if(ENABLE_COVERAGE)
         COMMAND ${LCOV} --capture
                 --directory ${CMAKE_BINARY_DIR}
                 --output-file ${COVERAGE_DIR}/coverage.info
-                --ignore-errors mismatch,inconsistent,negative
+                --ignore-errors mismatch,inconsistent,negative,empty
         # 4. Filter out system headers, GoogleTest, external deps, test files themselves
         COMMAND ${LCOV} --remove ${COVERAGE_DIR}/coverage.info
                 "/usr/*"
