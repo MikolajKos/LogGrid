@@ -24,3 +24,27 @@ jobs:
 
     - name: Run GTest suite
       run: docker run --rm loggrid-tests
+
+  coverage:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Build coverage image
+      run: docker build --target coverage_image -t loggrid-coverage .
+
+    - name: Run coverage pipeline
+      run: |
+        docker run --name coverage-run loggrid-coverage
+        docker cp coverage-run:/usr/src/app/build/coverage/html ./coverage-html
+        docker rm coverage-run
+
+    - name: Upload HTML coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: coverage-html/
+        retention-days: 7
