@@ -68,7 +68,8 @@ if(ENABLE_COVERAGE)
                 --ignore-errors mismatch,inconsistent,negative,empty
         # 4. Filter out system headers, GoogleTest, external deps, test files themselves
         COMMAND ${LCOV} --remove ${COVERAGE_DIR}/coverage.info
-                "/usr/*"
+                "/usr/include/*"
+                "/usr/lib/*"
                 "${CMAKE_BINARY_DIR}/_deps/*"
                 "${CMAKE_SOURCE_DIR}/external/*"
                 "${CMAKE_SOURCE_DIR}/tests/*"
@@ -79,6 +80,7 @@ if(ENABLE_COVERAGE)
                 --output-directory ${COVERAGE_DIR}/html
                 --title "LogGrid Coverage"
                 --legend
+                --ignore-errors empty
         DEPENDS LogGridTests
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     )
