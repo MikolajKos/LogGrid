@@ -65,19 +65,20 @@ if(ENABLE_COVERAGE)
         COMMAND ${LCOV} --capture
                 --directory ${CMAKE_BINARY_DIR}
                 --output-file ${COVERAGE_DIR}/coverage.info
-        # 4. Filter out system headers, GoogleTest, test files themselves
+                --ignore-errors mismatch
+        # 4. Filter out system headers, GoogleTest, external deps, test files themselves
         COMMAND ${LCOV} --remove ${COVERAGE_DIR}/coverage.info
                 "/usr/*"
                 "${CMAKE_BINARY_DIR}/_deps/*"
+                "${CMAKE_SOURCE_DIR}/external/*"
                 "${CMAKE_SOURCE_DIR}/tests/*"
                 --output-file ${COVERAGE_DIR}/coverage_filtered.info
-        # 5. HTML report
+                --ignore-errors unused
+        # 5. HTML report (also prints summary)
         COMMAND ${GENHTML} ${COVERAGE_DIR}/coverage_filtered.info
                 --output-directory ${COVERAGE_DIR}/html
                 --title "LogGrid Coverage"
                 --legend
-        # 6. Print summary to terminal
-        COMMAND ${LCOV} --summary ${COVERAGE_DIR}/coverage_filtered.info
         DEPENDS LogGridTests
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     )
