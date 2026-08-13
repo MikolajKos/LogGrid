@@ -37,6 +37,56 @@ add_subdirectory(NetClient)
 add_subdirectory(tests)
 
 # ==========================================
+# Code Coverage
+# ==========================================
+option(ENABLE_COVERAGE "Enable gcov/lcov code coverage" OFF)
+
+if(ENABLE_COVERAGE)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR "Coverage requires GCC or Clang")
+    endif()
+
+    find_program(LCOV    lcov    REQUIRED)
+    find_program(GENHTML genhtml REQUIRED)
+
+    target_compile_options(LogGridTests PRIVATE --coverage)
+    target_link_options(LogGridTests    PRIVATE --coverage)
+
+    set(COVERAGE_DIR "${CMAKE_BINARY_DIR}/coverage")
+
+    add_custom_target(coverage
+        COMMENT "Generating code coverage report..."
+        # 1. Zero old counters
+        COMMAND ${LCOV} --zerocounters --directory ${CMAKE_BINARY_DIR}
+        # 2. Run tests
+        COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+        # 3. Capture
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${COVERAGE_DIR}
+        COMMAND ${LCOV} --capture
+                --directory ${CMAKE_BINARY_DIR}
+                --output-file ${COVERAGE_DIR}/coverage.info
+                --ignore-errors mismatch,inconsistent,negative,empty
+        # 4. Filter out system headers, GoogleTest, external deps, test files themselves
+        COMMAND ${LCOV} --remove ${COVERAGE_DIR}/coverage.info
+                "/usr/include/*"
+                "/usr/lib/*"
+                "${CMAKE_BINARY_DIR}/_deps/*"
+                "${CMAKE_SOURCE_DIR}/external/*"
+                "${CMAKE_SOURCE_DIR}/tests/*"
+                --output-file ${COVERAGE_DIR}/coverage_filtered.info
+                --ignore-errors unused,empty
+        # 5. HTML report (also prints summary)
+        COMMAND ${GENHTML} ${COVERAGE_DIR}/coverage_filtered.info
+                --output-directory ${COVERAGE_DIR}/html
+                --title "LogGrid Coverage"
+                --legend
+                --ignore-errors empty
+        DEPENDS LogGridTests
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    )
+endif()
+
+# ==========================================
 # Doxygen Documentation Target
 # ==========================================
 find_package(Doxygen)
