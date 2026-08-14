@@ -170,6 +170,14 @@ INSTANTIATE_TEST_SUITE_P(
             "RegexAdvancedPattern", 
             "timestamp [ERR-123] db crash\ntimestamp [INFO-123] ok\ntimestamp [ERR-999] memory\n", 
             0, 1000, "\\[ERR-\\d+\\]", 2
+        },
+
+        // 10. Invalid regex check
+        FileTestCase{
+            "InvalidRegex",
+            "", 0, 0,
+            "[invalid",
+            0
         }
     ),
     // Format test names for the console output
