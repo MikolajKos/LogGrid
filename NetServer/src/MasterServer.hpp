@@ -38,12 +38,6 @@ public:
 
     virtual ~MasterServer() = default;
 
-    /**
-     * @brief Adds a new search task to the pending queue.
-     * @param task The task payload defining the file chunk and search keyword.
-     */
-    void AddTask(const LogSystem::TaskPayload& task);
-
     std::future<LogSystem::SearchResult> StartSearch(const std::string& filepath, const std::string& keyword);
 
 protected:
