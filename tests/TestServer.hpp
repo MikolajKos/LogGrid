@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <thread>
 #include <mutex>
 
 #include "LogSearchCommon.hpp"
@@ -15,8 +16,39 @@ public:
     explicit TestServer(uint16_t port) :
         olc::net::server_interface<LogSystem::LogSearchMsg>(port) {};
         
-        virtual ~TestServer() = default;
+        virtual ~TestServer() {
+            m_running = false;
+        };
 public:
+    bool Start() {
+        if (!server_interface::Start()) return false;
+
+        m_running = true;
+        m_updateThread = std::jthread([this]() {
+            while (m_running)
+                Update();
+        });
+
+        return true;
+    }
+
+    void SendTask(LogSystem::TaskPayload payload) {
+        if (!m_connectedClient) return;
+
+        m_sentTaskId = payload.task_id;
+        
+        olc::net::message<LogSystem::LogSearchMsg> msg;
+        msg.header.id = LogSystem::LogSearchMsg::Server_SearchTask;
+        msg << payload;
+
+        m_connectedClient->Send(msg);
+    }
+
+    bool WaitForTaskDone(std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        return m_condVarTaskDone.wait_for(lock, timeout, [this]{ return m_taskDoneReceived; });
+    }    
+    
     bool WaitForHello(std::chrono::milliseconds timeout) {
         std::unique_lock<std::mutex> lock(m_mutex);
         return m_conditionVar.wait_for(lock, timeout, [this]{ return m_helloReceived; });
@@ -24,12 +56,18 @@ public:
 
     void ResetFlags() {
         m_helloReceived = false;
+        m_taskDoneReceived = false;
     }
 
     bool HelloReceived() const { return m_helloReceived; }
 
+    bool ReceivedTaskDoneIdMatch() const {
+        return m_sentTaskId == m_receivedTaskId;
+    }
+
 protected:
     bool OnClientConnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) override {
+        m_connectedClient = client;
         return true;
     }
     
@@ -43,7 +81,6 @@ protected:
             case LogSystem::LogSearchMsg::Worker_Hello: {
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
-
                     m_helloReceived = true;
                 }
                 m_conditionVar.notify_one();
@@ -54,6 +91,17 @@ protected:
                 break;
             }
             case LogSystem::LogSearchMsg::Worker_TaskDone:{
+                LogSystem::TaskDoneResult result;
+                msg >> result;
+
+                m_receivedTaskId = result.task_id;
+                
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    m_taskDoneReceived = true;
+                }
+                m_condVarTaskDone.notify_one();
+                
                 break;
             }
             default:
@@ -62,9 +110,22 @@ protected:
     }
     
 private:
+    std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> m_connectedClient = nullptr;
+
+    // ACK test flag
     bool m_helloReceived = false;
-    std::mutex m_mutex;
+
+    // Task done matching task id flag
+    uint64_t m_sentTaskId;
+    uint64_t m_receivedTaskId;
+    bool m_taskDoneReceived = false;
+    
+    std::mutex m_mutex;    
     std::condition_variable m_conditionVar;
+    std::condition_variable m_condVarTaskDone;
+
+    std::atomic<bool> m_running;
+    std::jthread m_updateThread;
 };
 
 #endif // TEST_SERVER_HPP

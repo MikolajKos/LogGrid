@@ -52,6 +52,9 @@ if(ENABLE_COVERAGE)
     target_compile_options(LogGridTests PRIVATE --coverage)
     target_link_options(LogGridTests    PRIVATE --coverage)
 
+    target_compile_options(LogGridIntegrationTests PRIVATE --coverage)
+    target_link_options(LogGridIntegrationTests    PRIVATE --coverage)
+
     set(COVERAGE_DIR "${CMAKE_BINARY_DIR}/coverage")
 
     add_custom_target(coverage
@@ -81,7 +84,7 @@ if(ENABLE_COVERAGE)
                 --title "LogGrid Coverage"
                 --legend
                 --ignore-errors empty
-        DEPENDS LogGridTests
+        DEPENDS LogGridTests LogGridIntegrationTests
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     )
 endif()
