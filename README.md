@@ -47,7 +47,7 @@ Starting the entire distributed architecture takes only seconds:
 
 ## Status
 
-> **Work in Progress** — core networking, pipeline dispatch, fault tolerance and result aggregation are functional.
+> **Work in Progress** — core networking, pipeline dispatch, fault tolerance, result aggregation and testing infrastructure are functional.
 
 ### Done
 - [x] Async TCP networking layer (Asio `io_context`, non-blocking I/O)
@@ -60,6 +60,9 @@ Starting the entire distributed architecture takes only seconds:
 - [x] Pipeline dispatch — Master dispatches N tasks per Worker simultaneously based on advertised thread count (`Worker_Hello` handshake); free slots tracked dynamically via `m_workersFreeSlots`
 - [x] Per-task ACK — `Worker_TaskDone` carries `task_id` for precise completion tracking with multiple in-flight tasks per Worker
 - [x] Worker ThreadPool optimization — use `hardware_concurrency() - 1` threads to avoid starving the ASIO I/O thread
+- [x] Unit tests — GoogleTest suite for `ThreadPool`, `FileProcessor`, `WorkerClient` with parametrized and edge-case coverage
+- [x] Code coverage — gcov/lcov pipeline in CI, HTML report uploaded as artifact, `FileProcessor` at 100% line coverage
+- [x] Integration tests — real TCP end-to-end tests: `Worker_Hello` handshake, task dispatch with `task_id` ACK verification, `Worker_FoundLine` content matching
 
 ### Planned
 - [ ] HTTP API — Master exposes `/search` endpoint, replacing hardcoded `StartSearch` call
@@ -71,33 +74,38 @@ Starting the entire distributed architecture takes only seconds:
 ├── CMakeLists.txt
 ├── docker-compose.yml
 ├── Dockerfile
-├── Dockerfile.master
-├── Dockerfile.worker
 ├── NetClient
-│   ├── CMakeLists.txt
-│   └── src
-│       ├── FileProcessor.hpp
-│       ├── main.cpp
-│       ├── ThreadPool.hpp
-│       ├── WorkerClient.cpp
-│       └── WorkerClient.hpp
+│   ├── CMakeLists.txt
+│   └── src
+│       ├── FileProcessor.hpp
+│       ├── main.cpp
+│       ├── ThreadPool.hpp
+│       ├── WorkerClient.cpp
+│       └── WorkerClient.hpp
 ├── NetCommon
-│   ├── CMakeLists.txt
-│   └── include
-│       ├── LogSearchCommon.hpp
-│       ├── net_client.hpp
-│       ├── net_common.hpp
-│       ├── net_connection.hpp
-│       ├── net_message.hpp
-│       ├── net_server.hpp
-│       ├── net_tsqueue.hpp
-│       └── olc_net.hpp
+│   ├── CMakeLists.txt
+│   └── include
+│       ├── LogSearchCommon.hpp
+│       ├── net_client.hpp
+│       ├── net_common.hpp
+│       ├── net_connection.hpp
+│       ├── net_message.hpp
+│       ├── net_server.hpp
+│       ├── net_tsqueue.hpp
+│       └── olc_net.hpp
 ├── NetServer
-│   ├── CMakeLists.txt
-│   └── src
-│       ├── main.cpp
-│       ├── MasterServer.cpp
-│       └── MasterServer.hpp
+│   ├── CMakeLists.txt
+│   └── src
+│       ├── main.cpp
+│       ├── MasterServer.cpp
+│       └── MasterServer.hpp
+├── tests
+│   ├── CMakeLists.txt
+│   ├── TestServer.hpp
+│   ├── test_file_processor.cpp
+│   ├── test_thread_pool.cpp
+│   ├── test_worker_client.cpp
+│   └── test_worker_integration.cpp
 └── README.md
 ```
 
