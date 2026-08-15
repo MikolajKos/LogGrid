@@ -52,6 +52,9 @@ if(ENABLE_COVERAGE)
     target_compile_options(LogGridTests PRIVATE --coverage)
     target_link_options(LogGridTests    PRIVATE --coverage)
 
+    target_compile_options(LogGridIntegrationTests PRIVATE --coverage)
+    target_link_options(LogGridIntegrationTests    PRIVATE --coverage)
+
     set(COVERAGE_DIR "${CMAKE_BINARY_DIR}/coverage")
 
     add_custom_target(coverage
@@ -74,14 +77,14 @@ if(ENABLE_COVERAGE)
                 "${CMAKE_SOURCE_DIR}/external/*"
                 "${CMAKE_SOURCE_DIR}/tests/*"
                 --output-file ${COVERAGE_DIR}/coverage_filtered.info
-                --ignore-errors unused,empty
+                --ignore-errors unused,empty,inconsistent
         # 5. HTML report (also prints summary)
         COMMAND ${GENHTML} ${COVERAGE_DIR}/coverage_filtered.info
                 --output-directory ${COVERAGE_DIR}/html
                 --title "LogGrid Coverage"
                 --legend
                 --ignore-errors empty
-        DEPENDS LogGridTests
+        DEPENDS LogGridTests LogGridIntegrationTests
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     )
 endif()
