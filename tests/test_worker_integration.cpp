@@ -45,6 +45,7 @@ TEST_F(WorkerClientMsgIntegrationTest, WorkerProcessesTaskAndSendsTaskDone) {
     // Create temp file
     std::ofstream file;
     file.open("test_file.log");
+    file.close();
 
     LogSystem::TaskPayload dummyTask;
     
@@ -70,8 +71,45 @@ TEST_F(WorkerClientMsgIntegrationTest, WorkerProcessesTaskAndSendsTaskDone) {
     
     EXPECT_TRUE(taskIdMatch);
     
-    file.close();
     std::filesystem::remove(filename);
+}
+
+TEST_F(WorkerClientMsgIntegrationTest, WorkerFoundLineTest) {
+    bool helloReceived = server->WaitForHello(std::chrono::seconds(2));
+    ASSERT_TRUE(helloReceived);
+    
+    std::ofstream file;
+    file.open("test_file.log");
+
+    std::string expectedResult = "ERROR LINE";
+
+    file << "LINE 1\nLINE 2\nERROR LINE\nLINE 3";
+    file.close();
+
+        LogSystem::TaskPayload dummyTask;
+    
+    std::string filename = "test_file.log";
+    std::string keyword = "ERROR";
+
+    strncpy(dummyTask.filename, filename.c_str(), sizeof(dummyTask.filename));
+    dummyTask.filename[sizeof(dummyTask.filename) - 1] = '\0';
+    strncpy(dummyTask.keyword, keyword.c_str(), sizeof(dummyTask.keyword));
+    dummyTask.keyword[sizeof(dummyTask.keyword) - 1] = '\0';
+    
+    dummyTask.start_offset = 0;
+    dummyTask.end_offset = 1000;
+    dummyTask.search_id = 1;
+    dummyTask.task_id = 1;
+
+    server->SendTask(dummyTask);
+
+    bool lineFound = server->WaitForFoundLine(std::chrono::seconds(2));
+    ASSERT_TRUE(lineFound);
+
+    std::string resultLine = server->GetFoundLineResult();
+    EXPECT_EQ(expectedResult, resultLine);
+    
+    std::filesystem::remove("test_file.log");
 }
 
 std::unique_ptr<TestServer> WorkerClientMsgIntegrationTest::server = nullptr;

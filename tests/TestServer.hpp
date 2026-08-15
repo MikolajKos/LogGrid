@@ -54,16 +54,27 @@ public:
         return m_conditionVar.wait_for(lock, timeout, [this]{ return m_helloReceived; });
     }
 
+    bool WaitForFoundLine(std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        return m_condVarFoundLine.wait_for(lock, timeout, [this]{ return m_lineReceived; });
+    }
+
     void ResetFlags() {
+        m_sentTaskId = 0;
+        m_receivedTaskId = 0;
+
         m_helloReceived = false;
         m_taskDoneReceived = false;
+        m_lineReceived = false;
+
+        m_resultLine = "";
     }
 
     bool HelloReceived() const { return m_helloReceived; }
 
-    bool ReceivedTaskDoneIdMatch() const {
-        return m_sentTaskId == m_receivedTaskId;
-    }
+    bool ReceivedTaskDoneIdMatch() const { return m_sentTaskId == m_receivedTaskId; }
+
+    std::string GetFoundLineResult() const { return m_resultLine; }
 
 protected:
     bool OnClientConnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) override {
@@ -88,6 +99,16 @@ protected:
                 break;
             }
             case LogSystem::LogSearchMsg::Worker_FoundLine:{
+                LogSystem::ResultPayload result;
+                msg >> result;
+                m_resultLine = result.text;
+                
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    m_lineReceived = true;
+                }
+                m_condVarFoundLine.notify_one();
+                
                 break;
             }
             case LogSystem::LogSearchMsg::Worker_TaskDone:{
@@ -115,10 +136,15 @@ private:
     // ACK test flag
     bool m_helloReceived = false;
 
-    // Task done matching task id flag
-    uint64_t m_sentTaskId;
-    uint64_t m_receivedTaskId;
+    // Task done matching task id fields
+    uint64_t m_sentTaskId = 0;
+    uint64_t m_receivedTaskId = 0;
     bool m_taskDoneReceived = false;
+
+    // Worker found line test fields
+    bool m_lineReceived = false;
+    std::string m_resultLine = "";
+    std::condition_variable m_condVarFoundLine;
     
     std::mutex m_mutex;    
     std::condition_variable m_conditionVar;
