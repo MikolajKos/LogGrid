@@ -7,6 +7,7 @@
 [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=fff)](https://www.docker.com/)
 [![CMake](https://img.shields.io/badge/CMake-064F8C?logo=cmake&logoColor=fff)](https://cmake.org/)
 [![Asio](https://img.shields.io/badge/Asio-Network_Library-00599C?logo=c%2B%2B&logoColor=fff)](https://think-async.com/Asio/)
+[![Google Test](https://img.shields.io/badge/gtest-Testing-23a71b?logo=c%2B%2B&logoColor=fff)](https://github.com/google/googletest)
 [![Doxygen](https://img.shields.io/badge/Doxygen-Documentation-4A86CF?logo=readthedocs&logoColor=fff)](https://www.doxygen.nl/)
 [![Status: WIP](https://img.shields.io/badge/Status-WIP%20(it's%20alive)-orange)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
