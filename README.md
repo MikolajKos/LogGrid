@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="assets/loggrid-banner.png" alt="LogGrid - Distributed Asynchronous Log System">
+</div>
+
 # LogGrid
 
 **LogGrid** is a fast, distributed log analysis and search system inspired by **MapReduce** and **Splunk** architectures. It is designed for parallel processing of gigabytes of text files distributed across multiple stateless compute nodes. 
