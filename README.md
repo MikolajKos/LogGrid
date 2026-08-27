@@ -18,21 +18,13 @@ By leveraging modern C++ concurrency and a fully containerized ecosystem, LogGri
 
 ---
 
-## Architecture
+## Architecture & Highlights
 
-The system is built on an event-driven, push-based asynchronous TCP/IP architecture, orchestrated entirely via **Docker Compose**. It implements a Producer-Consumer pattern for log ingestion and consists of the following core components:
-
-* **Master (Server):** The central coordinator. It manages the task queue, dispatches multiple tasks simultaneously to each Worker based on its thread count, and aggregates search results. It features robust **Built-in Fault Tolerance** – if a Worker crashes, all its in-flight tasks are immediately reclaimed and redistributed across all available idle Workers.
-* **Worker (Client):** A highly optimized, stateless compute node. On connect it advertises its thread capacity via a `Worker_Hello` handshake. The Master immediately saturates all Worker threads with parallel tasks. Each completed task is acknowledged by `task_id`, allowing multiple tasks to be in-flight simultaneously without ambiguity.
-* **Log Generator / Shared Volume:** A dynamic ingestion layer where microservices write live logs to a shared Docker Volume, allowing Workers to process incoming data on the fly. A Docker healthcheck ensures the Master starts only after the log file is fully generated.
-
-## Key Features
-
-* **Infrastructure as Code (IaC):** Fully containerized using `Dockerfile` (Multi-stage builds) and `docker-compose.yml`. Starts the entire distributed cluster with a single command.
-* **Environment Agnostic:** Eliminates OS-level dependencies (Windows/Linux conflicts) through isolated Ubuntu-based containers and environment variable configuration.
-* **Pipeline Dispatch:** Master saturates all Worker threads immediately — dispatches N tasks per Worker on connect and replenishes after each `Worker_TaskDone` ACK, eliminating idle gaps between task completions.
-* **Zero-Downtime Reassignment:** When a Worker crashes, all its in-flight tasks are reclaimed at once and redistributed across every available idle Worker in a single pass.
-* **High-Performance I/O:** Asynchronous network streaming ensures the Master node is never blocked, even with dozens of connected Workers.
+* **Master-Worker Pipeline:** The Master splits log files into byte-aligned chunks and saturates every Worker thread with parallel tasks on connect. As each chunk completes, it is immediately replenished — eliminating idle gaps and maximising throughput.
+* **Fault Tolerance:** On Worker disconnect, all in-flight tasks are atomically reclaimed and redistributed across every available idle Worker in a single pass — zero manual intervention, zero lost work.
+* **Async, Non-Blocking I/O:** Built on standalone ASIO (`io_context`). The Master is never blocked: message dispatch, result aggregation, and fault recovery all run through the same event loop without spinning or polling.
+* **Stateless Workers, Persistent Connections:** Workers advertise their thread capacity on connect and remain alive between search sessions — ready for a future HTTP API without reconnection overhead.
+* **Fully Containerized:** One `docker compose up --build` spins up the entire distributed cluster. Multi-stage Docker builds, a shared log volume, and a healthcheck guarantee correct startup ordering.
 
 ## Tech Stack
 
@@ -62,19 +54,12 @@ Starting the entire distributed architecture takes only seconds:
 > **Work in Progress** — core networking, pipeline dispatch, fault tolerance, result aggregation and testing infrastructure are functional.
 
 ### Done
-- [x] Async TCP networking layer (Asio `io_context`, non-blocking I/O)
-- [x] Master-Worker task distribution protocol
-- [x] Fault Tolerance — full reclaim of all in-flight tasks on Worker disconnect, redistributed across all idle Workers
-- [x] Byte-aligned chunk splitting (correct line boundary detection)
-- [x] Result aggregation — `promise/future` per search session, results delivered to caller
-- [x] Worker ThreadPool — parallel chunk processing via `std::thread::hardware_concurrency()`
-- [x] Docker healthcheck — Master waits for log file to be fully generated before starting
-- [x] Pipeline dispatch — Master dispatches N tasks per Worker simultaneously based on advertised thread count (`Worker_Hello` handshake); free slots tracked dynamically via `m_workersFreeSlots`
-- [x] Per-task ACK — `Worker_TaskDone` carries `task_id` for precise completion tracking with multiple in-flight tasks per Worker
-- [x] Worker ThreadPool optimization — use `hardware_concurrency() - 1` threads to avoid starving the ASIO I/O thread
-- [x] Unit tests — GoogleTest suite for `ThreadPool`, `FileProcessor`, `WorkerClient` with parametrized and edge-case coverage
-- [x] Code coverage — gcov/lcov pipeline in CI, HTML report uploaded as artifact, `FileProcessor` at 100% line coverage
-- [x] Integration tests — real TCP end-to-end tests: `Worker_Hello` handshake, task dispatch with `task_id` ACK verification, `Worker_FoundLine` content matching
+- [x] **Async TCP networking** — non-blocking ASIO `io_context`; Master and Workers communicate via a typed binary protocol with length-prefixed messages
+- [x] **Pipeline dispatch & result aggregation** — Master saturates all Worker threads on connect, replenishes per-task ACK, and delivers aggregated results via `promise/future` per search session
+- [x] **Fault tolerance** — all in-flight tasks atomically reclaimed on Worker disconnect and redistributed across every idle Worker in a single pass
+- [x] **Byte-aligned chunk splitting** — file partitioned at exact line boundaries; Worker ThreadPool processes chunks in parallel with CPU-oversubscription protection
+- [x] **Comprehensive CI/CD & testing** — GoogleTest unit and integration suites (parametrized, edge-case, and real TCP end-to-end scenarios); gcov/lcov coverage pipeline with HTML artifact; `FileProcessor` at 100% line coverage
+- [x] **Production-grade containerization** — unified multi-stage `Dockerfile`, Docker Compose orchestration, and healthcheck-enforced startup ordering
 
 ### Planned
 - [ ] HTTP API — Master exposes `/search` endpoint, replacing hardcoded `StartSearch` call
