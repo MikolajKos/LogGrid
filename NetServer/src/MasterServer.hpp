@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <mutex>
 #include <memory>
+
 #include <future>
 
 #include "olc_net.hpp"
@@ -40,7 +41,7 @@ public:
 
     virtual ~MasterServer() = default;
 
-    std::future<LogSystem::SearchResult> StartSearch(const std::string& filepath, const std::string& keyword) override;
+    SearchHandle StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) override;
 
 protected:
     /**

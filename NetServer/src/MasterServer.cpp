@@ -19,14 +19,15 @@
 MasterServer::MasterServer(uint16_t port)
     : olc::net::server_interface<LogSystem::LogSearchMsg>(port) {}
 
-std::future<LogSystem::SearchResult> MasterServer::StartSearch(const std::string& filepath, const std::string& keyword) {
+SearchHandle MasterServer::StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) {
     if (!std::filesystem::exists(filepath))
         throw std::runtime_error("[MASTER] File not found: " + filepath);
 
     // Set Search Session
     SearchSession session;
 
-    session.result.search_id = m_nextSearchId;    
+    uint64_t searchId = m_nextSearchId;
+    session.result.search_id = searchId;
     std::future<LogSystem::SearchResult> future = session.promise.get_future();
     
     m_sessions[m_nextSearchId] = std::move(session);
@@ -102,7 +103,7 @@ std::future<LogSystem::SearchResult> MasterServer::StartSearch(const std::string
         }
     }
 
-    return future;
+    return {searchId, std::move(future)};
 }
 
 bool MasterServer::OnClientConnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {

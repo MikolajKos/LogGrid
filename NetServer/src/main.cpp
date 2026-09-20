@@ -16,21 +16,21 @@ int main() {
     server.Start();
     std::cout << "[MASTER] The server is running and waiting for Workers\n";
     
-    auto future = server.StartSearch("/app/data/sample.log", "212[0-9]");
+    // SearchHandle handle = server.StartSearch("/app/data/sample.log", "212[0-9]");
     
-    std::jthread resultThread([future = std::move(future)]() mutable {
-        auto result = future.get();
+    // std::jthread resultThread([future = std::move(handle.future)]() mutable {
+    //     auto result = future.get();
         
-        std::cout << "[MASTER] Found " << result.lines.size() << "\n";
-        for (const auto& line : result.lines) {
-            std::cout << "  " << line << "\n";
-        }
-    });
+    //     std::cout << "[MASTER] Found " << result.lines.size() << "\n";
+    //     for (const auto& line : result.lines) {
+    //         std::cout << "  " << line << "\n";
+    //     }
+    // });
     
-    while(resultThread.joinable()) {
-        server.Update();
-        std::this_thread::sleep_for(1ms);
-    }
+    // while(resultThread.joinable()) {
+    //     server.Update();
+    //     std::this_thread::sleep_for(1ms);
+    // }
 
     return 0;
 }
