@@ -122,7 +122,7 @@ namespace olc
                         std::remove(m_deqConnections.begin(), m_deqConnections.end(), nullptr), m_deqConnections.end());
             }
 
-            void Update(size_t nMaxMessages = -1) {
+            void Update(size_t nMaxMessages = -1) { // size_t = -1 = MAX VALUE
                 size_t nMessageCount = 0;
 
                 while (nMessageCount < nMaxMessages && !m_qMessagesIn.empty()) {
