@@ -10,6 +10,7 @@
 #include <future>
 
 #include "olc_net.hpp"
+#include "ISearchService.hpp"
 #include "LogSearchCommon.hpp"
 
 struct SearchSession {
@@ -28,7 +29,8 @@ struct SearchSession {
  * and ensures Fault Tolerance by tracking in-flight tasks. If a Worker disconnects 
  * prematurely, its task is reclaimed and pushed back to the pending queue.
  */
-class MasterServer : public olc::net::server_interface<LogSystem::LogSearchMsg> {
+class MasterServer : public olc::net::server_interface<LogSystem::LogSearchMsg>,
+                     public ISearchService {
 public:
     /**
      * @brief Constructs the MasterServer and binds it to a specific port.
@@ -38,7 +40,7 @@ public:
 
     virtual ~MasterServer() = default;
 
-    std::future<LogSystem::SearchResult> StartSearch(const std::string& filepath, const std::string& keyword);
+    std::future<LogSystem::SearchResult> StartSearch(const std::string& filepath, const std::string& keyword) override;
 
 protected:
     /**
