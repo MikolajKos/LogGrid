@@ -25,8 +25,7 @@ void WorkerClient::OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) {
             
             LogSystem::TaskPayload task;
             msg >> task;
-            
-            
+
             // Pass processing to a thread
             m_threadPool.Enqueue([this, task]() {
                 // searchId for session identification

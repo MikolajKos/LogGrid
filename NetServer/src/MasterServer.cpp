@@ -19,14 +19,15 @@
 MasterServer::MasterServer(uint16_t port)
     : olc::net::server_interface<LogSystem::LogSearchMsg>(port) {}
 
-std::future<LogSystem::SearchResult> MasterServer::StartSearch(const std::string& filepath, const std::string& keyword) {
+SearchHandle MasterServer::StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) {
     if (!std::filesystem::exists(filepath))
         throw std::runtime_error("[MASTER] File not found: " + filepath);
 
     // Set Search Session
     SearchSession session;
 
-    session.result.search_id = m_nextSearchId;    
+    uint64_t searchId = m_nextSearchId;
+    session.result.search_id = searchId;
     std::future<LogSystem::SearchResult> future = session.promise.get_future();
     
     m_sessions[m_nextSearchId] = std::move(session);
@@ -102,7 +103,27 @@ std::future<LogSystem::SearchResult> MasterServer::StartSearch(const std::string
         }
     }
 
-    return future;
+    return {searchId, std::move(future)};
+}
+
+std::optional<SearchStatus> MasterServer::GetStatus(const uint64_t search_id) {
+    std::lock_guard<std::mutex> lock(m_stateMutex);
+
+    auto it = m_sessions.find(search_id);
+
+    // Session erased and completed
+    if (it == m_sessions.end()) {
+        return std::nullopt;
+    }
+
+    SearchStatus sessionStatus;
+
+    sessionStatus.state = SearchState::Running;
+    sessionStatus.chunks_done = it->second.chunks_done;
+    sessionStatus.chunks_total = it->second.chunks_total;
+    sessionStatus.lines_found = it->second.result.lines.size();
+
+    return sessionStatus;
 }
 
 bool MasterServer::OnClientConnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
@@ -255,7 +276,7 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
             {
                 std::lock_guard<std::mutex> lock(m_stateMutex);
 
-                // Increase available worker threads by one
+                // New worker thread is free now
                 m_workersFreeSlots[client->GetID()]++;
                 
                 auto it = m_inFlightTasks.find(client->GetID());

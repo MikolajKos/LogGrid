@@ -7,9 +7,11 @@
 #include <unordered_set>
 #include <mutex>
 #include <memory>
+
 #include <future>
 
 #include "olc_net.hpp"
+#include "ISearchService.hpp"
 #include "LogSearchCommon.hpp"
 
 struct SearchSession {
@@ -28,7 +30,8 @@ struct SearchSession {
  * and ensures Fault Tolerance by tracking in-flight tasks. If a Worker disconnects 
  * prematurely, its task is reclaimed and pushed back to the pending queue.
  */
-class MasterServer : public olc::net::server_interface<LogSystem::LogSearchMsg> {
+class MasterServer : public olc::net::server_interface<LogSystem::LogSearchMsg>,
+                     public ISearchService {
 public:
     /**
      * @brief Constructs the MasterServer and binds it to a specific port.
@@ -38,7 +41,8 @@ public:
 
     virtual ~MasterServer() = default;
 
-    std::future<LogSystem::SearchResult> StartSearch(const std::string& filepath, const std::string& keyword);
+    SearchHandle StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) override;
+    std::optional<SearchStatus> GetStatus(const uint64_t search_id) override;
 
 protected:
     /**
@@ -98,7 +102,7 @@ private:
      * Prevents the same Worker from being enqueued multiple times when
      * several of its threads complete tasks concurrently while the pending
      * queue is empty. Must be kept in sync with m_idleWorkers:
-     * insert on push, erase on pop.
+     * insert on push, on pop.
      */
     std::unordered_set<uint32_t> m_idleWorkersIds;
     
