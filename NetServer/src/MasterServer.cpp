@@ -106,6 +106,26 @@ SearchHandle MasterServer::StartSearch(const std::string& filepath, const std::s
     return {searchId, std::move(future)};
 }
 
+std::optional<SearchStatus> MasterServer::GetStatus(const uint64_t search_id) {
+    std::lock_guard<std::mutex> lock(m_stateMutex);
+
+    auto it = m_sessions.find(search_id);
+
+    // Session erased and completed
+    if (it == m_sessions.end()) {
+        return std::nullopt;
+    }
+
+    SearchStatus sessionStatus;
+
+    sessionStatus.state = SearchState::Running;
+    sessionStatus.chunks_done = it->second.chunks_done;
+    sessionStatus.chunks_total = it->second.chunks_total;
+    sessionStatus.lines_found = it->second.result.lines.size();
+
+    return sessionStatus;
+}
+
 bool MasterServer::OnClientConnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
     std::cout << "[MASTER] New connection attempt\n";
     return true; // Accept the connection 
@@ -256,7 +276,7 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
             {
                 std::lock_guard<std::mutex> lock(m_stateMutex);
 
-                // Increase available worker threads by one
+                // New worker thread is free now
                 m_workersFreeSlots[client->GetID()]++;
                 
                 auto it = m_inFlightTasks.find(client->GetID());

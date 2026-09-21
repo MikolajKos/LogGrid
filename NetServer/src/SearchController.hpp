@@ -21,11 +21,11 @@ public:
     void HandleGetSearch(const httplib::Request& req, httplib::Response& res);
 private:
     void RegisterSession(SearchHandle& handle);
-
 private:
     ISearchService& m_service;
 
-    std::unordered_map<uint64_t, std::future<LogSystem::SearchResult>> m_sessions;
+    // shared_future so it's possible to get() value multiple times in Get call
+    std::unordered_map<uint64_t, std::shared_future<LogSystem::SearchResult>> m_sessions;
     std::mutex m_mutex;
 };
 

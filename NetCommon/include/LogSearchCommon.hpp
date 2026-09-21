@@ -17,12 +17,10 @@ namespace LogSystem {
         Server_JobFinished      // All work done
     };
 
-    // I chose 64 unsigned bit number over 32, 
-    // because 32 bit number alows to read maximum of 4GB file
     struct TaskPayload {
         uint64_t search_id;
         uint64_t task_id;
-        uint64_t start_offset;    // Line offset
+        uint64_t start_offset;
         uint64_t end_offset;
         char keyword[64];       // Search criteria
         char filename[128];

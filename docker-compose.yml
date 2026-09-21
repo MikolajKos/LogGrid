@@ -6,6 +6,7 @@ services:
       target: master_image
     ports:
       - "60000:60000"
+      - "8080:8080"
     tty: true
     volumes:
       - shared_logs:/app/data:ro

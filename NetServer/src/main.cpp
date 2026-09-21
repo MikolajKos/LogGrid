@@ -1,9 +1,8 @@
-#include <atomic>
 #include <chrono>
 #include <iostream>
-#include <string>
 #include <thread>
 
+#include "HttpApi.hpp"
 #include "MasterServer.hpp"
 
 using namespace std::literals::chrono_literals;
@@ -16,21 +15,13 @@ int main() {
     server.Start();
     std::cout << "[MASTER] The server is running and waiting for Workers\n";
     
-    // SearchHandle handle = server.StartSearch("/app/data/sample.log", "212[0-9]");
-    
-    // std::jthread resultThread([future = std::move(handle.future)]() mutable {
-    //     auto result = future.get();
-        
-    //     std::cout << "[MASTER] Found " << result.lines.size() << "\n";
-    //     for (const auto& line : result.lines) {
-    //         std::cout << "  " << line << "\n";
-    //     }
-    // });
-    
-    // while(resultThread.joinable()) {
-    //     server.Update();
-    //     std::this_thread::sleep_for(1ms);
-    // }
+    HttpApi api(server);
+    api.Start(8080);
+
+    while (true) {
+        server.Update();
+        std::this_thread::sleep_for(1ms);
+    }
 
     return 0;
 }
