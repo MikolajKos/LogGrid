@@ -19,7 +19,7 @@
 MasterServer::MasterServer(uint16_t port)
     : olc::net::server_interface<LogSystem::LogSearchMsg>(port) {}
 
-SearchHandle MasterServer::StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) {
+uint64_t MasterServer::StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) {
     if (!std::filesystem::exists(filepath))
         throw std::runtime_error("[MASTER] File not found: " + filepath);
 
@@ -28,7 +28,6 @@ SearchHandle MasterServer::StartSearch(const std::string& filepath, const std::s
 
     uint64_t searchId = m_nextSearchId;
     session.result.search_id = searchId;
-    std::future<LogSystem::SearchResult> future = session.promise.get_future();
     
     m_sessions[m_nextSearchId] = std::move(session);
 
@@ -40,6 +39,9 @@ SearchHandle MasterServer::StartSearch(const std::string& filepath, const std::s
     LogSystem::TaskPayload task;
     
     task.search_id = m_nextSearchId;
+
+    // Maximum count of result lines
+    task.max_results = config.max_results;
 
     strncpy(task.filename, filepath.c_str(), sizeof(task.filename));
     task.filename[sizeof(task.filename) - 1] = '\0';
@@ -103,7 +105,7 @@ SearchHandle MasterServer::StartSearch(const std::string& filepath, const std::s
         }
     }
 
-    return {searchId, std::move(future)};
+    return searchId;
 }
 
 std::optional<SearchStatus> MasterServer::GetStatus(const uint64_t search_id) {
@@ -116,14 +118,15 @@ std::optional<SearchStatus> MasterServer::GetStatus(const uint64_t search_id) {
         return std::nullopt;
     }
 
-    SearchStatus sessionStatus;
+    const auto& session = it->second;
 
-    sessionStatus.state = SearchState::Running;
-    sessionStatus.chunks_done = it->second.chunks_done;
-    sessionStatus.chunks_total = it->second.chunks_total;
-    sessionStatus.lines_found = it->second.result.lines.size();
-
-    return sessionStatus;
+    return SearchStatus {
+        session.chunks_done == session.chunks_total ? SearchState::Done : SearchState::Running,
+        session.result.line_count,
+        session.result.total_matches,
+        session.chunks_done,
+        session.chunks_total
+    };
 }
 
 bool MasterServer::OnClientConnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
@@ -244,70 +247,48 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
 
             break;
         }
-        case LogSystem::LogSearchMsg::Worker_FoundLine: {
-            LogSystem::ResultPayload result;
-            msg >> result;
-
-            {
-                std::lock_guard<std::mutex> lock(m_stateMutex);
-                auto it = m_sessions.find(result.search_id);
-                if (it != m_sessions.end())
-                    it->second.result.lines.push_back(result.text);
-                else
-                    std::cout << "[MASTER] Worker_FoundLine: unknown search_id: " << result.search_id << "\n";
-            }
-
-            break;
-        }
         case LogSystem::LogSearchMsg::Worker_TaskDone: {
             std::cout << "[MASTER] Worker: " << client->GetID() << " finished asigned task\n";
 
-            // Read message containing task id
-            LogSystem::TaskDoneResult result;
-            msg >> result;
-
-            uint64_t taskId = result.task_id;
-
             uint64_t searchId = 0;
             bool searchComplete = false;
-            LogSystem::SearchResult completedResult;
-            std::promise<LogSystem::SearchResult> completedPromise;
-
-            {
-                std::lock_guard<std::mutex> lock(m_stateMutex);
-
-                // New worker thread is free now
-                m_workersFreeSlots[client->GetID()]++;
+            
+            try {
+                uint64_t taskId = AggregateTaskResult(msg);
                 
-                auto it = m_inFlightTasks.find(client->GetID());
-                if (it != m_inFlightTasks.end()) {
-                    // Inner map contains all tasks assigned to a single worker
-                    auto& innerMap = it->second;
+                {
+                    std::lock_guard<std::mutex> lock(m_stateMutex);
+
+                    // New worker thread is free now
+                    m_workersFreeSlots[client->GetID()]++;
                     
-                    searchId = innerMap[taskId].search_id;
-                    innerMap.erase(taskId);
+                    auto it = m_inFlightTasks.find(client->GetID());
+                    if (it != m_inFlightTasks.end()) {
+                        // Inner map contains all tasks assigned to a single worker
+                        auto& innerMap = it->second;
+
+                        searchId = innerMap[taskId].search_id;
+                        innerMap.erase(taskId);
+                        
+                        if (innerMap.empty())
+                            m_inFlightTasks.erase(it);
+
+                        auto& session = m_sessions[searchId];
+                        session.chunks_done++;
                     
-                    if (innerMap.empty())
-                        m_inFlightTasks.erase(it);
-
-                    auto& session = m_sessions[searchId];
-                    session.chunks_done++;
-
-                    if (session.chunks_done == session.chunks_total) {
-                        searchComplete = true;
-                        completedResult = std::move(session.result);
-                        completedPromise = std::move(session.promise);
-
-                        m_sessions.erase(searchId);
+                        if (session.chunks_done == session.chunks_total)
+                            searchComplete = true;
                     }
                 }
+
+                DispatchNextTask(client);
+
+                if (searchComplete) {
+                    std::cout << "[MASTER] Search ID: " << searchId << " complete. Results delivered.\n";
+                }
             }
-
-            DispatchNextTask(client);
-
-            if (searchComplete) {
-                completedPromise.set_value(std::move(completedResult));
-                std::cout << "[MASTER] Search ID: " << searchId << " complete. Results delivered.\n";
+            catch (const std::runtime_error& e) {
+                std::cout << e.what() << "\n";
             }
             
             break;
@@ -316,4 +297,62 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
             std::cout << "[MASTER] Undefined message type received from Worker: " << client->GetID() << "\n";
             break;
     }
+}
+
+uint64_t MasterServer::AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg) {
+    uint64_t taskId;
+    // back message data is taskId
+    msg >> taskId;
+    
+    LogSystem::SearchResult batch = DeserializeBatch(msg);
+
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+
+        auto it = m_sessions.find(batch.search_id);
+
+        if (it == m_sessions.end()) {
+            throw std::runtime_error("[MASTER] Unknown search_id:" + std::to_string(batch.search_id));
+        }
+
+        // WRITE RESULT LINES TO A FILE 
+        
+        auto& session = it->second;
+        session.result.line_count += batch.line_count;
+        session.result.total_matches += batch.total_matches;
+    }
+
+    return taskId;
+}
+
+LogSystem::SearchResult MasterServer::DeserializeBatch(olc::net::message<LogSystem::LogSearchMsg>& msg) {
+    LogSystem::SearchResult result;
+    uint64_t searchId, totalMatches;
+    uint32_t lineCount;
+
+    // Read POD data from message back
+    msg >> searchId >> totalMatches >> lineCount;
+
+    result.search_id = searchId;
+    result.total_matches = totalMatches;
+    result.line_count = lineCount;
+    
+    // CURRENTLY NOT USED
+    std::vector<std::string> lines;
+    
+    // Read raw bytes (containing lenght and lines) from the front
+    size_t offset = 0;
+    for (uint32_t i = 0; i < lineCount; ++i) {
+        uint32_t len;
+        std::memcpy(&len, msg.body.data() + offset, 4); // Read 4 bytes
+        offset += 4;
+
+        lines.emplace_back(
+            reinterpret_cast<const char*>(msg.body.data() + offset), len
+        );
+
+        offset += len;
+    }
+
+    return result;
 }

@@ -15,7 +15,6 @@
 #include "LogSearchCommon.hpp"
 
 struct SearchSession {
-    std::promise<LogSystem::SearchResult> promise;
     LogSystem::SearchResult result;
     int chunks_total = 0;
     int chunks_done = 0;
@@ -41,7 +40,7 @@ public:
 
     virtual ~MasterServer() = default;
 
-    SearchHandle StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) override;
+    uint64_t StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) override;
     std::optional<SearchStatus> GetStatus(const uint64_t search_id) override;
 
 protected:
@@ -80,6 +79,9 @@ private:
      */
     bool DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client);
 
+    uint64_t AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg);
+
+    LogSystem::SearchResult DeserializeBatch(olc::net::message<LogSystem::LogSearchMsg>& msg);
 private:
     std::mutex m_stateMutex;
     std::deque<LogSystem::TaskPayload> m_pendingTasks;

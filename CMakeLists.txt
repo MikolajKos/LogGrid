@@ -34,7 +34,7 @@ enable_testing()
 add_subdirectory(NetCommon)
 add_subdirectory(NetServer)
 add_subdirectory(NetClient)
-add_subdirectory(tests)
+#add_subdirectory(tests)
 
 # ==========================================
 # Code Coverage

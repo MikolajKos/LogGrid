@@ -11,16 +11,14 @@
 
 class FileProcessor {
 public:
-    static void SearchTask(
-        const LogSystem::TaskPayload& task,
-        std::function<void(const std::string&)> onLineFound,
-        std::function<void()> onTaskDone
-    ) {
+    static LogSystem::ChunkResult SearchTask(const LogSystem::TaskPayload& task, const uint64_t maxLineCount) {
         std::ifstream file(task.filename, std::ios::binary);
+
+        LogSystem::ChunkResult batch;
 
         if (!file.is_open()) {
             std::cout << "[WORKER] Could not open file: " << task.filename << "\n";
-            onTaskDone();
+            return {};
         }
         
         uint64_t startByte = task.start_offset;
@@ -54,8 +52,7 @@ public:
         }
         catch (const std::regex_error& e) {
             std::cout << "[WORKER] Invalid regex pattern: " << task.keyword << " (" << e.what() << ")\n";
-            onTaskDone();
-            return;
+            return {};
         }
         
         while (currentPos <= endByte && std::getline(file, line)) {
@@ -63,8 +60,14 @@ public:
             if (!line.empty() && line.back() == '\r')
                 line.pop_back();
 
+            // Line Found - update batch
             if (std::regex_search(line, pattern)) {
-                onLineFound(line);
+                if (batch.lines_found < maxLineCount) {
+                    batch.lines.push_back(line);
+                    batch.lines_found++;
+                }
+                
+                batch.total_matches++;
             }
 
             // Position update
@@ -78,7 +81,7 @@ public:
             currentPos = static_cast<uint64_t>(pos);
         }
 
-        onTaskDone();
+        return batch;
     }
 };
 
