@@ -12,36 +12,30 @@ namespace LogSystem {
     enum class LogSearchMsg {
         Worker_Hello,           // Worker is ready
         Server_SearchTask,      // Master sends TaskPayload structure
-        Worker_FoundLine,       // Worker sends matching code line
-        Worker_TaskDone,        // Worker finished analysing chunk, asking for more
+        Worker_TaskDone,        // Worker finished analysing chunk, returns result batch
         Server_JobFinished      // All work done
     };
 
     struct TaskPayload {
         uint64_t search_id;
         uint64_t task_id;
+        uint64_t max_results;
         uint64_t start_offset;
         uint64_t end_offset;
         char keyword[64];       // Search criteria
         char filename[128];
     };
-
-    struct ResultPayload {
-        uint64_t search_id;
-        char text[256];
+    
+    struct ChunkResult {
+        std::vector<std::string> lines;
+        uint64_t search_id{0};
+        uint64_t task_id{0};
+        uint64_t total_matches{0};
+        uint32_t lines_found{0};
     };
-
+    
     struct HelloMessage {
         uint64_t threads_available;
-    };
-
-    struct TaskDoneResult {
-        uint64_t task_id;
-    };
-
-    struct SearchResult {
-        uint64_t search_id;
-        std::vector<std::string> lines;
     };
 }
 

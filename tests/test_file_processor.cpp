@@ -7,39 +7,30 @@
 #include "FileProcessor.hpp"
 
 TEST(FileProcessorTest, HandlesMissingFileGracefully) {
-    LogSystem::TaskPayload dummyTask;
+    LogSystem::TaskPayload dummyTask = {}; 
 
     std::string dummyFilePath = "absolutely/random/filepath/good_luck_finding_it.txt";
     std::string dummyKeyword = "super mega dangerous error";
 
-    strncpy(dummyTask.filename, dummyFilePath.c_str(), sizeof(dummyTask.filename));
+    strncpy(dummyTask.filename, dummyFilePath.c_str(), sizeof(dummyTask.filename) - 1);
     dummyTask.filename[sizeof(dummyTask.filename) - 1] = '\0';
-    strncpy(dummyTask.keyword, dummyKeyword.c_str(), sizeof(dummyTask.keyword));
+    
+    strncpy(dummyTask.keyword, dummyKeyword.c_str(), sizeof(dummyTask.keyword) - 1);
     dummyTask.keyword[sizeof(dummyTask.keyword) - 1] = '\0';
 
     dummyTask.start_offset = 0;
     dummyTask.end_offset = 1000;
-
     dummyTask.search_id = 1;
     dummyTask.task_id = 1;
+    dummyTask.max_results = 10000; 
 
-    bool lineFoundCalled = false;
-    bool taskDoneCalled = false;    
+    auto result = FileProcessor::SearchTask(dummyTask, dummyTask.max_results);
 
-    auto onLineFound = [&](const std::string& line) {
-        lineFoundCalled = true;
-    };
-
-    // onTaskDone is called when file was not found
-    auto onTaskDone = [&]() {
-        taskDoneCalled = true;
-    };
-
-    FileProcessor::SearchTask(dummyTask, onLineFound, onTaskDone);
-
-    EXPECT_FALSE(lineFoundCalled);
-    EXPECT_TRUE(taskDoneCalled);
+    EXPECT_TRUE(result.lines.empty());
+    EXPECT_EQ(result.lines_found, 0);
+    EXPECT_EQ(result.total_matches, 0);
 }
+
 
 // =====================================================================
 
@@ -70,7 +61,7 @@ protected:
 
 TEST_P(FileProcessorParamTest, FindLinesInChunksTest) {
     // Create Search Task
-    LogSystem::TaskPayload dummyTask;
+    LogSystem::TaskPayload dummyTask = {};
     
     dummyTask.start_offset = GetParam().startOffset;
     dummyTask.end_offset = GetParam().endOffset;
@@ -78,32 +69,24 @@ TEST_P(FileProcessorParamTest, FindLinesInChunksTest) {
     std::string filename = "test_file.log";
     std::string keyword = GetParam().keyword;
 
-    strncpy(dummyTask.filename, filename.c_str(), sizeof(dummyTask.filename));
+    strncpy(dummyTask.filename, filename.c_str(), sizeof(dummyTask.filename) - 1);
     dummyTask.filename[sizeof(dummyTask.filename) - 1] = '\0';
-    strncpy(dummyTask.keyword, keyword.c_str(), sizeof(dummyTask.keyword));
+    
+    strncpy(dummyTask.keyword, keyword.c_str(), sizeof(dummyTask.keyword) - 1);
     dummyTask.keyword[sizeof(dummyTask.keyword) - 1] = '\0';
 
     dummyTask.search_id = 1;
     dummyTask.task_id = 1;
+    dummyTask.max_results = 10000;
 
-    // ---
 
-    bool taskDoneCalled = false;
-    int linesCount = 0;
+    auto result = FileProcessor::SearchTask(dummyTask, dummyTask.max_results);
 
-    auto onTaskDone = [&]() {
-        taskDoneCalled = true;
-    };
-
-    auto onLineFound = [&](const std::string&) {
-        linesCount++;
-    };
-
-    FileProcessor::SearchTask(dummyTask, onLineFound, onTaskDone);
-
-    EXPECT_EQ(linesCount, GetParam().expectedMatchCount);
-    EXPECT_TRUE(taskDoneCalled);
+    EXPECT_EQ(result.total_matches, GetParam().expectedMatchCount);
+    EXPECT_EQ(result.lines_found, GetParam().expectedMatchCount);
+    EXPECT_EQ(result.lines.size(), GetParam().expectedMatchCount);
 }
+
 
 INSTANTIATE_TEST_SUITE_P(
     FileChunkingEdgeCases,

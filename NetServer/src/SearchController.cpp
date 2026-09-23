@@ -11,15 +11,14 @@ void SearchController::HandlePostSearch(const httplib::Request& req, httplib::Re
 
         // Populate config
         config.max_results = body.value("maxResults", config.max_results); // Has default value
+        config.output_dir = body.value("outputDir", config.output_dir);
 
         std::string path = body.at("path").get<std::string>();
         std::string keyword = body.at("keyword").get<std::string>();
 
-        SearchHandle handle = m_service.StartSearch(path, keyword, config);
+        uint64_t searchId = m_service.StartSearch(path, keyword, config);
 
-        RegisterSession(handle);
-
-        nlohmann::json response = { {"searchId", handle.search_id} };
+        nlohmann::json response = { {"searchId", searchId} };
         res.set_content(response.dump(), "application/json");
         res.status = Status::Accepted_202;
     }
@@ -50,53 +49,22 @@ void SearchController::HandleGetSearch(const httplib::Request& req, httplib::Res
 
         // Session running
         if (optStatus) {
-            SearchStatus sessionStatus = *optStatus;
-
-            // enum doesn't serialize to json as string
-            std::string state = sessionStatus.state == SearchState::Running ? "Running" : "Done";
+            SearchStatus session = *optStatus;
             
             nlohmann::json response = {
                 { "searchId", sessionId },
-                { "state", state},
-                { "chunksDone", sessionStatus.chunks_done},
-                { "chunksTotal", sessionStatus.chunks_total},
-                { "linesFound", sessionStatus.lines_found}
+                { "state", session.state == SearchState::Running ? "Running" : "Done" },
+                { "chunksDone", session.chunks_done },
+                { "chunksTotal", session.chunks_total },
+                { "linesCount", session.lines_found },
+                { "totalMatches", session.total_matches }
             };
 
             res.set_content(response.dump(), "application/json");
             res.status = Status::OK_200;
         }
-        else { // Session Done or Not Found
-            std::shared_future<LogSystem::SearchResult> sharedFuture;
-            
-            {
-                std::lock_guard<std::mutex> lock(m_mutex);
-                auto it = m_sessions.find(sessionId);
-                
-                if (it == m_sessions.end()) {
-                    throw std::runtime_error("Session not found");
-                }
-                
-                sharedFuture = it->second;
-            }
-
-            // Session done but promise not set
-            if (sharedFuture.wait_for(0s) != std::future_status::ready) {
-                res.set_content("Please try again", "text/plain");
-                res.status = Status::Accepted_202;
-                return;
-            }
-
-            LogSystem::SearchResult result = sharedFuture.get();
-
-            nlohmann::json response = {
-                { "searchId", sessionId },
-                { "state", "Done" },
-                { "linesFound", result.lines.size() }
-            };
-
-            res.set_content(response.dump(), "application/json");
-            res.status = Status::OK_200;
+        else { // Session Not Found
+            throw std::runtime_error("Session Not Found");
         }
 
     }
@@ -112,15 +80,4 @@ void SearchController::HandleGetSearch(const httplib::Request& req, httplib::Res
         res.set_content("Bad Request", "text/plain");
         res.status = Status::BadRequest_400;
     }
-}
-
-void SearchController::RegisterSession(SearchHandle& handle) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    auto it = m_sessions.find(handle.search_id);
-    
-    if (it != m_sessions.end()) {
-        throw std::runtime_error(std::format("ID: {} was already in use by other session.", handle.search_id));        
-    }
-
-    m_sessions[handle.search_id] = handle.future.share();
 }

@@ -11,23 +11,20 @@ enum class SearchState { Running, Done };
 
 struct SearchStatus {
     SearchState state;
+    uint64_t lines_found = 0;
+    uint64_t total_matches;
     int chunks_done = 0;
     int chunks_total = 0;
-    uint64_t lines_found = 0;
 };
 
 struct SearchConfig {
+    std::string output_dir = "/sessions/"; // default output catalog
     uint64_t max_results = 10000; // line count
-};
-
-struct SearchHandle {
-    uint64_t search_id;
-    std::future<LogSystem::SearchResult> future;
 };
 
 class ISearchService {
 public:
-    virtual SearchHandle StartSearch(const std::string& path, const std::string& keyword, const SearchConfig& config) = 0;
+    virtual uint64_t StartSearch(const std::string& path, const std::string& keyword, const SearchConfig& config) = 0;
     virtual std::optional<SearchStatus> GetStatus(const uint64_t search_id) = 0;
     
     virtual ~ISearchService() = default;

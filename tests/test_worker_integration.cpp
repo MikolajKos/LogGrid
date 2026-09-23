@@ -47,20 +47,21 @@ TEST_F(WorkerClientMsgIntegrationTest, WorkerProcessesTaskAndSendsTaskDone) {
     file.open("test_file.log");
     file.close();
 
-    LogSystem::TaskPayload dummyTask;
+    LogSystem::TaskPayload dummyTask = {};
     
     std::string filename = "test_file.log";
     std::string keyword = "non-existing word";
 
-    strncpy(dummyTask.filename, filename.c_str(), sizeof(dummyTask.filename));
+    strncpy(dummyTask.filename, filename.c_str(), sizeof(dummyTask.filename) - 1);
     dummyTask.filename[sizeof(dummyTask.filename) - 1] = '\0';
-    strncpy(dummyTask.keyword, keyword.c_str(), sizeof(dummyTask.keyword));
+    strncpy(dummyTask.keyword, keyword.c_str(), sizeof(dummyTask.keyword) - 1);
     dummyTask.keyword[sizeof(dummyTask.keyword) - 1] = '\0';
     
     dummyTask.start_offset = 0;
     dummyTask.end_offset = 1000;
     dummyTask.search_id = 100;
     dummyTask.task_id = 100;
+    dummyTask.max_results = 10000;
 
     server->SendTask(dummyTask);
 
@@ -68,46 +69,51 @@ TEST_F(WorkerClientMsgIntegrationTest, WorkerProcessesTaskAndSendsTaskDone) {
     ASSERT_TRUE(taskDone);
 
     bool taskIdMatch = server->ReceivedTaskDoneIdMatch();
-    
     EXPECT_TRUE(taskIdMatch);
+
+    auto batch = server->GetReceivedBatch();
+    EXPECT_TRUE(batch.lines.empty());
+    EXPECT_EQ(batch.total_matches, 0);
     
     std::filesystem::remove(filename);
 }
 
-TEST_F(WorkerClientMsgIntegrationTest, WorkerFoundLineTest) {
+TEST_F(WorkerClientMsgIntegrationTest, WorkerFindsLinesAndSendsBatchTest) {
     bool helloReceived = server->WaitForHello(std::chrono::seconds(2));
     ASSERT_TRUE(helloReceived);
     
     std::ofstream file;
     file.open("test_file.log");
 
-    std::string expectedResult = "ERROR LINE";
-
     file << "LINE 1\nLINE 2\nERROR LINE\nLINE 3";
     file.close();
 
-        LogSystem::TaskPayload dummyTask;
+    LogSystem::TaskPayload dummyTask = {};
     
     std::string filename = "test_file.log";
     std::string keyword = "ERROR";
 
-    strncpy(dummyTask.filename, filename.c_str(), sizeof(dummyTask.filename));
+    strncpy(dummyTask.filename, filename.c_str(), sizeof(dummyTask.filename) - 1);
     dummyTask.filename[sizeof(dummyTask.filename) - 1] = '\0';
-    strncpy(dummyTask.keyword, keyword.c_str(), sizeof(dummyTask.keyword));
+    strncpy(dummyTask.keyword, keyword.c_str(), sizeof(dummyTask.keyword) - 1);
     dummyTask.keyword[sizeof(dummyTask.keyword) - 1] = '\0';
     
     dummyTask.start_offset = 0;
     dummyTask.end_offset = 1000;
     dummyTask.search_id = 1;
     dummyTask.task_id = 1;
+    dummyTask.max_results = 10000;
 
     server->SendTask(dummyTask);
 
-    bool lineFound = server->WaitForFoundLine(std::chrono::seconds(2));
-    ASSERT_TRUE(lineFound);
+    bool taskDone = server->WaitForTaskDone(std::chrono::seconds(2));
+    ASSERT_TRUE(taskDone);
 
-    std::string resultLine = server->GetFoundLineResult();
-    EXPECT_EQ(expectedResult, resultLine);
+    auto batch = server->GetReceivedBatch();
+    EXPECT_EQ(batch.total_matches, 1);
+    EXPECT_EQ(batch.lines_found, 1);
+    ASSERT_EQ(batch.lines.size(), 1);
+    EXPECT_EQ(batch.lines[0], "ERROR LINE");
     
     std::filesystem::remove("test_file.log");
 }

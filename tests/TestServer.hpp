@@ -54,27 +54,21 @@ public:
         return m_conditionVar.wait_for(lock, timeout, [this]{ return m_helloReceived; });
     }
 
-    bool WaitForFoundLine(std::chrono::milliseconds timeout) {
-        std::unique_lock<std::mutex> lock(m_mutex);
-        return m_condVarFoundLine.wait_for(lock, timeout, [this]{ return m_lineReceived; });
-    }
-
     void ResetFlags() {
         m_sentTaskId = 0;
         m_receivedTaskId = 0;
 
         m_helloReceived = false;
         m_taskDoneReceived = false;
-        m_lineReceived = false;
 
-        m_resultLine = "";
+        m_receivedBatch = {};
     }
 
     bool HelloReceived() const { return m_helloReceived; }
 
     bool ReceivedTaskDoneIdMatch() const { return m_sentTaskId == m_receivedTaskId; }
 
-    std::string GetFoundLineResult() const { return m_resultLine; }
+    LogSystem::ChunkResult GetReceivedBatch() const { return m_receivedBatch; }
 
 protected:
     bool OnClientConnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) override {
@@ -98,27 +92,35 @@ protected:
                 
                 break;
             }
-            case LogSystem::LogSearchMsg::Worker_FoundLine:{
-                LogSystem::ResultPayload result;
-                msg >> result;
-                m_resultLine = result.text;
-                
-                {
-                    std::lock_guard<std::mutex> lock(m_mutex);
-                    m_lineReceived = true;
-                }
-                m_condVarFoundLine.notify_one();
-                
-                break;
-            }
-            case LogSystem::LogSearchMsg::Worker_TaskDone:{
-                LogSystem::TaskDoneResult result;
-                msg >> result;
+            case LogSystem::LogSearchMsg::Worker_TaskDone: {
+                uint64_t taskId;
+                msg >> taskId;
 
-                m_receivedTaskId = result.task_id;
-                
+                uint64_t searchId, totalMatches;
+                uint32_t lineCount;
+                msg >> searchId >> totalMatches >> lineCount;
+
+                LogSystem::ChunkResult batch;
+                batch.task_id = taskId;
+                batch.search_id = searchId;
+                batch.total_matches = totalMatches;
+                batch.lines_found = lineCount;
+
+                size_t offset = 0;
+                for (uint32_t i = 0; i < lineCount; ++i) {
+                    uint32_t len;
+                    std::memcpy(&len, msg.body.data() + offset, 4);
+                    offset += 4;
+                    batch.lines.emplace_back(
+                        reinterpret_cast<const char*>(msg.body.data() + offset), len
+                    );
+                    offset += len;
+                }
+
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
+                    m_receivedTaskId = taskId;
+                    m_receivedBatch = std::move(batch);
                     m_taskDoneReceived = true;
                 }
                 m_condVarTaskDone.notify_one();
@@ -140,11 +142,7 @@ private:
     uint64_t m_sentTaskId = 0;
     uint64_t m_receivedTaskId = 0;
     bool m_taskDoneReceived = false;
-
-    // Worker found line test fields
-    bool m_lineReceived = false;
-    std::string m_resultLine = "";
-    std::condition_variable m_condVarFoundLine;
+    LogSystem::ChunkResult m_receivedBatch;
     
     std::mutex m_mutex;    
     std::condition_variable m_conditionVar;
