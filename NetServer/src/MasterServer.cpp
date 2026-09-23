@@ -405,12 +405,20 @@ std::string MasterServer::CreateSessionFilePath(const std::string& userDir, cons
     auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
 
     std::string filename = std::format("search_{}_{}.log", searchId, timestamp);
+    
+    std::filesystem::path basePath = std::filesystem::path(m_base_dir).lexically_normal();
     std::filesystem::path relUserDir = MakeRelative(userDir);
-    std::filesystem::path fullFilePath = std::filesystem::path(m_base_dir) / relUserDir / filename;
+    
+    std::filesystem::path fullFilePath = (basePath / relUserDir / filename).lexically_normal();
+
+    if (!fullFilePath.string().starts_with(basePath.string())) {
+        throw std::runtime_error("[MASTER] Security Alert: Path Traversal attempt blocked!");
+    }
 
     std::filesystem::create_directories(fullFilePath.parent_path());
 
-    std::cout << "[MASTER] Result aggregation directory created: " << fullFilePath.string() << "\n";
+    std::cout << "[MASTER] Result aggregation directory checked/created: " 
+                << fullFilePath.parent_path().string() << "\n";
 
     return fullFilePath.string();
 }
