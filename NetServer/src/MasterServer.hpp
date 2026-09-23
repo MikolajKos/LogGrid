@@ -93,6 +93,14 @@ private:
     std::string CreateSessionFilePath(const std::string& userDir, const uint64_t searchId);
 
     std::filesystem::path MakeRelative(std::string_view path);
+
+    uint64_t RegisterNewSession(const SearchConfig& config);
+    
+    LogSystem::TaskPayload CreateChunkTask(const std::string& filepath, const std::string& keyword, const uint64_t searchId, const SearchConfig& config);
+
+    void EnqueueFileChunks(const std::filesystem::path& filepath, LogSystem::TaskPayload baseTask);
+
+    void AssignIdleWorkers();
 private:
     std::mutex m_stateMutex;
     std::deque<LogSystem::TaskPayload> m_pendingTasks;
