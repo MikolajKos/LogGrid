@@ -12,7 +12,7 @@
 [![Status: WIP](https://img.shields.io/badge/Status-WIP%20(it's%20alive)-orange)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-**LogGrid** is a fast, distributed log analysis and search system inspired by **MapReduce** and **Splunk** architectures. It is designed for parallel processing of gigabytes of log files distributed across multiple stateless compute nodes, triggered and queried through a REST HTTP API.
+**LogGrid** is a fast, distributed log analysis and search system inspired by **MapReduce** and **Splunk** architectures. It is designed for parallel processing of gigabytes of log files distributed across multiple stateless compute nodes, triggered and queried through an asynchronous REST HTTP API.
 
 ---
 
@@ -23,13 +23,13 @@ A single search request triggers a full distributed pipeline:
 ```
 Client (curl / browser)
         │
-        │ HTTP REST API
+        │ HTTP REST API (Async Polling)
         ▼
 ┌─────────────────────┐
 │    Master Node      │  ← splits files into byte-aligned chunks
-│  (HttpApi layer)    │    dispatches tasks, aggregates results
+│  (HttpApi layer)    │    dispatches tasks, writes results to disk
 └──────┬──────────────┘
-       │ TCP (binary protocol)
+       │ TCP (binary batched protocol)
    ┌───┴───┐
    ▼       ▼
 Worker   Worker        ← each Worker runs a local ThreadPool
@@ -42,18 +42,19 @@ Worker   Worker        ← each Worker runs a local ThreadPool
 1. Client sends `POST /api/search` with a file path and keyword
 2. Master splits the file into byte-aligned chunks and dispatches them across all connected Workers
 3. Each Worker runs a local `ThreadPool` and searches its assigned chunk using regex
-4. Matched lines stream back to Master over TCP
-5. Client polls `GET /api/status/{id}` until the search completes
+4. Matched lines and metrics stream back to Master over TCP as binary batches
+5. Master dynamically appends results to a unique session log file on disk
+6. Client polls `GET /api/status/{id}` to track real-time progress (`chunksDone` vs `chunksTotal`)
 
 ---
 
 ## Architecture & Highlights
 
 * **Master-Worker Pipeline** — Master splits log files into byte-aligned chunks and saturates every Worker thread with parallel tasks on connect. As each chunk completes, it is immediately replenished — eliminating idle gaps and maximising throughput.
+* **Disk I/O Aggregation** — Unbounded in-memory vectors have been eliminated. The Master safely appends batched results from Workers directly to disk, ensuring low RAM footprint even for 50GB+ log searches.
 * **Fault Tolerance** — On Worker disconnect, all in-flight tasks are atomically reclaimed and redistributed across every available idle Worker in a single pass — zero manual intervention, zero lost work.
-* **Async, Non-Blocking I/O** — Built on standalone ASIO (`io_context`). The Master is never blocked: message dispatch, result aggregation, and fault recovery all run through the same event loop without spinning or polling.
+* **Async, Non-Blocking API** — Built on standalone ASIO (`io_context`). The legacy blocking `promise/future` patterns were removed. The REST API is fully asynchronous, allowing clients to poll live search states.
 * **Stateless Workers, Persistent Connections** — Workers advertise their thread capacity on connect and remain alive between search sessions — ready to serve the next request without reconnection overhead.
-* **HTTP API with clean layer separation** — `HttpApi` (transport) → `SearchController` (adapter) → `ISearchService` (interface) → `MasterServer` (domain). The search logic is fully decoupled from the HTTP layer and testable in isolation via mock injection.
 * **Fully Containerized** — One `docker compose up --build` spins up the entire distributed cluster. Multi-stage Docker builds, a shared log volume, and a healthcheck guarantee correct startup ordering.
 
 ---
@@ -66,7 +67,7 @@ Worker   Worker        ← each Worker runs a local ThreadPool
 | Networking (internal) | Standalone ASIO — async TCP, `io_context` |
 | HTTP API | [cpp-httplib](https://github.com/yhirose/cpp-httplib) (header-only) |
 | JSON | [nlohmann/json](https://github.com/nlohmann/json) (header-only) |
-| Concurrency | `std::mutex`, `std::jthread`, `std::promise/future`, custom `ThreadPool` |
+| Concurrency | `std::mutex`, `std::jthread`, custom `ThreadPool` |
 | Testing | GoogleTest — unit, parametrized, integration (real TCP) |
 | Coverage | gcov / lcov — HTML report via CI artifact |
 | Build | CMake + Ninja |
@@ -93,7 +94,7 @@ curl -X POST http://localhost:8080/api/search \
 
 # 4. Poll for results
 curl http://localhost:8080/api/status/0
-# → {"linesFound": 42, "searchId": 0, "state": "Done"}
+# → {"searchId": 0, "state": "Done", "chunksDone": 200, "chunksTotal": 200, "linesCount": 42, "totalMatches": 42}
 
 # 5. View live cluster logs
 docker compose logs -f
@@ -136,7 +137,8 @@ docker compose logs -f
   "state": "Running",
   "chunksDone": 14,
   "chunksTotal": 200,
-  "linesFound": 382
+  "linesCount": 382,
+  "totalMatches": 405
 }
 ```
 
@@ -145,7 +147,10 @@ docker compose logs -f
 {
   "searchId": 0,
   "state": "Done",
-  "linesFound": 42
+  "chunksDone": 200,
+  "chunksTotal": 200,
+  "linesCount": 10000,
+  "totalMatches": 15420
 }
 ```
 
@@ -155,21 +160,21 @@ docker compose logs -f
 
 ## Status
 
-> **Work in Progress** — core networking, pipeline dispatch, fault tolerance, HTTP API, and testing infrastructure are functional.
+> **Work in Progress** — core networking, pipeline dispatch, fault tolerance, disk I/O, HTTP API, and testing infrastructure are functional.
 
 ### Done
-- [x] **Async TCP networking** — non-blocking ASIO `io_context`; Master and Workers communicate via a typed binary protocol with length-prefixed messages
-- [x] **Pipeline dispatch & result aggregation** — Master saturates all Worker threads on connect, replenishes per-task ACK, and delivers aggregated results via `promise/future` per search session
+- [x] **Async TCP networking** — non-blocking ASIO `io_context`; Master and Workers communicate via a typed binary protocol with length-prefixed batched messages
+- [x] **Pipeline dispatch & disk I/O aggregation** — Master saturates Worker threads, collects batched payloads, and dynamically writes matched lines directly to disk files without exhausting RAM
 - [x] **Fault tolerance** — all in-flight tasks atomically reclaimed on Worker disconnect and redistributed across every idle Worker in a single pass
 - [x] **Byte-aligned chunk splitting** — file partitioned at exact line boundaries; Worker ThreadPool processes chunks in parallel with CPU-oversubscription protection
-- [x] **HTTP REST API** — `POST /api/search` triggers distributed search; `GET /api/status/{id}` polls session progress; `ISearchService` interface decouples HTTP layer from domain logic
-- [x] **Comprehensive CI/CD & testing** — GoogleTest unit and integration suites (parametrized, edge-case, and real TCP end-to-end); gcov/lcov coverage pipeline with HTML artifact; `FileProcessor` at 100% line coverage
+- [x] **HTTP REST API** — `POST /api/search` triggers distributed search; `GET /api/status/{id}` asynchronously polls real-time session metrics (including `chunksDone` and `totalMatches`)
+- [x] **Comprehensive CI/CD & testing** — GoogleTest unit and integration suites (parametrized, edge-case, and real TCP end-to-end); gcov/lcov coverage pipeline
 - [x] **Production-grade containerization** — unified multi-stage `Dockerfile`, Docker Compose orchestration, healthcheck-enforced startup ordering, port `8080` exposed for HTTP API
 
 ### Planned
-- [ ] **Result file & pagination** — Master writes matched lines to a per-session file on disk; `GET /api/search/{id}/results?offset=0&count=100` serves paginated lines; unbounded in-memory vector eliminated
 - [ ] **Directory search** — `path` accepts a directory; Master enumerates all files and distributes chunks across a single search session; result lines tagged with source filename
-- [ ] **`total_matches` counter** — track total number of matching lines independently of `maxResults` limit; surface in status response alongside `linesFound`
+- [ ] **Result pagination API** — `GET /api/search/{id}/results?offset=0&count=100` to safely serve the aggregated file lines back to the client
+- [ ] **Plugin Architecture** — refactoring payload parsing to support dynamic analysis modules (WASM/Lua) beyond simple regex
 - [ ] **Cloud deployment** — Master and Workers on AWS EC2; shared log storage on EFS/S3; Worker nodes auto-registered on boot
 
 ---
