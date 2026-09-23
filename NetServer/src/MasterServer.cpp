@@ -30,8 +30,8 @@ uint64_t MasterServer::StartSearch(const std::string& filepath, const std::strin
     SearchSession session;
 
     uint64_t searchId = m_nextSearchId;
-    session.result.search_id = searchId;
-    session.result.path = CreateSessionFilePath(config.output_dir, searchId);
+    session.search_id = searchId;
+    session.path = CreateSessionFilePath(config.output_dir, searchId);
     
     m_sessions[m_nextSearchId] = std::move(session);
 
@@ -126,8 +126,8 @@ std::optional<SearchStatus> MasterServer::GetStatus(const uint64_t search_id) {
 
     return SearchStatus {
         session.chunks_done == session.chunks_total ? SearchState::Done : SearchState::Running,
-        session.result.line_count,
-        session.result.total_matches,
+        session.line_count,
+        session.total_matches,
         session.chunks_done,
         session.chunks_total
     };
@@ -320,8 +320,8 @@ uint64_t MasterServer::AggregateTaskResult(olc::net::message<LogSystem::LogSearc
         }        
         
         auto& session = it->second;
-        session.result.line_count += batch.lines_found;
-        session.result.total_matches += batch.total_matches;
+        session.line_count += batch.lines_found;
+        session.total_matches += batch.total_matches;
     }
 
     WriteResults(batch.lines, batch.search_id);
@@ -373,7 +373,7 @@ void MasterServer::WriteResults(std::vector<std::string>& lines, const uint64_t 
             return;
         }
 
-        fullPath = it->second.result.path;
+        fullPath = it->second.path;
     }
     
     auto optFile = OpenResultFile(fullPath);

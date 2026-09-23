@@ -37,13 +37,6 @@ namespace LogSystem {
     struct HelloMessage {
         uint64_t threads_available;
     };
-
-    struct SearchResult {
-        std::string path;
-        uint64_t search_id;
-        uint64_t total_matches{0};
-        uint32_t line_count{0};
-    };
 }
 
 #endif // LOG_SEARCH_COMMON_HPP

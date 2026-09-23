@@ -15,7 +15,10 @@
 #include "LogSearchCommon.hpp"
 
 struct SearchSession {
-    LogSystem::SearchResult result;
+    std::string path;
+    uint64_t search_id;
+    uint64_t total_matches{0};
+    uint32_t line_count{0};
     int chunks_total = 0;
     int chunks_done = 0;
 };
