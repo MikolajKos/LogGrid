@@ -10,6 +10,7 @@ services:
     tty: true
     volumes:
       - shared_logs:/app/data:ro
+      - "/data/loggrid:/data/loggrid"
     depends_on:
       log-generator:
         condition: service_healthy

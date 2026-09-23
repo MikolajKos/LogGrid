@@ -1,14 +1,14 @@
 #ifndef MASTER_SERVER_HPP
 #define MASTER_SERVER_HPP
 
+#include <chrono>
 #include <deque>
+#include <filesystem>
+#include <memory>
+#include <mutex>
 #include <queue>
 #include <unordered_map>
 #include <unordered_set>
-#include <mutex>
-#include <memory>
-
-#include <future>
 
 #include "olc_net.hpp"
 #include "ISearchService.hpp"
@@ -81,7 +81,15 @@ private:
 
     uint64_t AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg);
 
-    LogSystem::SearchResult DeserializeBatch(olc::net::message<LogSystem::LogSearchMsg>& msg);
+    LogSystem::ChunkResult DeserializeBatch(olc::net::message<LogSystem::LogSearchMsg>& msg);
+
+    void WriteResults(std::vector<std::string>& lines, const uint64_t searchId);
+    
+    std::optional<std::ofstream> OpenResultFile(const std::string& filename);
+
+    std::string CreateSessionFilePath(const std::string& userDir, const uint64_t searchId);
+
+    std::filesystem::path MakeRelative(std::string_view path);
 private:
     std::mutex m_stateMutex;
     std::deque<LogSystem::TaskPayload> m_pendingTasks;
@@ -114,6 +122,8 @@ private:
     
     uint64_t m_nextSearchId = 0;
     uint64_t m_nextTaskId = 0;
+
+    std::string m_base_dir;
 };
 
 #endif // MASTER_SERVER_HPP

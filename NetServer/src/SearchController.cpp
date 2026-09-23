@@ -11,6 +11,7 @@ void SearchController::HandlePostSearch(const httplib::Request& req, httplib::Re
 
         // Populate config
         config.max_results = body.value("maxResults", config.max_results); // Has default value
+        config.output_dir = body.value("outputDir", config.output_dir);
 
         std::string path = body.at("path").get<std::string>();
         std::string keyword = body.at("keyword").get<std::string>();

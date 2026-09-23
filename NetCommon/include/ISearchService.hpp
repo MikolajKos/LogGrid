@@ -18,6 +18,7 @@ struct SearchStatus {
 };
 
 struct SearchConfig {
+    std::string output_dir = "/sessions/"; // default output catalog
     uint64_t max_results = 10000; // line count
 };
 
