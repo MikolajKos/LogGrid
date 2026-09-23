@@ -89,7 +89,7 @@ docker compose up -d --build
 # 3. Trigger a search
 curl -X POST http://localhost:8080/api/search \
   -H "Content-Type: application/json" \
-  -d '{"path": "/app/data/sample.log", "keyword": "ERROR"}'
+  -d '{"path": "/app/data/sample.log", "keyword": "ERROR", "outputDir": "quickstart"}'
 # → {"searchId": 0}
 
 # 4. Poll for results
@@ -111,6 +111,7 @@ docker compose logs -f
 {
   "path": "/app/data/sample.log",
   "keyword": "ERROR|WARN",
+  "outputDir": "sessions/errors",
   "maxResults": 10000
 }
 ```
@@ -119,6 +120,7 @@ docker compose logs -f
 |-------|------|----------|-------------|
 | `path` | string | ✅ | Absolute path to the log file on the shared volume |
 | `keyword` | string | ✅ | Search term or regex pattern |
+| `outputDir` | string | ❌ | Subdirectory to store the aggregated result file |
 | `maxResults` | number | ❌ | Maximum matched lines to collect (default: 10 000) |
 
 **Response `202 Accepted`:**
