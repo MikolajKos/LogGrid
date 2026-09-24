@@ -104,6 +104,7 @@ uint64_t MasterServer::RegisterNewSession(const SearchConfig& config) {
     
     SearchSession session;
     session.search_id = searchId;
+    session.max_results = config.max_results;
     session.path = CreateSessionFilePath(config.output_dir, searchId);
     
     {
@@ -290,6 +291,7 @@ uint64_t MasterServer::AggregateTaskResult(olc::net::message<LogSystem::LogSearc
     
     LogSystem::ChunkResult batch = DeserializeBatch(msg);
 
+    size_t linesToWrite = 0;
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
 
@@ -300,11 +302,23 @@ uint64_t MasterServer::AggregateTaskResult(olc::net::message<LogSystem::LogSearc
         }        
         
         auto& session = it->second;
-        session.line_count += batch.lines_found;
         session.total_matches += batch.total_matches;
+        
+        if (session.line_count < session.max_results) {
+            size_t needed = session.max_results - session.line_count;
+            linesToWrite = std::min(batch.lines.size(), needed);
+            
+            session.line_count += linesToWrite;
+        }
     }
 
-    WriteResults(batch.lines, batch.search_id);
+    if (linesToWrite > 0) {
+        if (batch.lines.size() > linesToWrite) {
+            batch.lines.resize(linesToWrite);
+        }
+        WriteResults(batch.lines, batch.search_id);
+    }
+
     
     return taskId;
 }

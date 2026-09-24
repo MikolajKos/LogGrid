@@ -24,6 +24,7 @@
 struct SearchSession {
     std::string path;          /**< Absolute path to the aggregated output result log file on disk. */
     uint64_t search_id{0};     /**< Unique identifier assigned to this search session. */
+    uint64_t max_results{0};   /**< Max lines count that can be stored in result file in this session */
     uint64_t total_matches{0}; /**< Total count of regex matches detected across all processed chunks. */
     uint32_t line_count{0};    /**< Number of matched lines written to disk (bounded by max_results). */
     int chunks_total = 0;      /**< Total number of byte-aligned chunks into which the file(s) were sliced. */
