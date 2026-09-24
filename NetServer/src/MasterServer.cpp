@@ -25,88 +25,90 @@ MasterServer::MasterServer(uint16_t port)
 uint64_t MasterServer::StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) {
     if (!std::filesystem::exists(filepath))
         throw std::runtime_error("[MASTER] File not found: " + filepath);
-
-    // Set Search Session
-    SearchSession session;
-
-    uint64_t searchId = m_nextSearchId;
-    session.search_id = searchId;
-    session.path = CreateSessionFilePath(config.output_dir, searchId);
     
-    m_sessions[m_nextSearchId] = std::move(session);
-
-    uint64_t fileSize = std::filesystem::file_size(filepath);
-    uint64_t currentByte = 0;
-
-    m_sessions[m_nextSearchId].chunks_total = (fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE;
-
-    LogSystem::TaskPayload task;
+    uint64_t searchId = RegisterNewSession(config);
     
-    task.search_id = m_nextSearchId;
+    auto baseTask = CreateChunkTask(filepath, keyword, searchId, config);
 
-    // Maximum count of result lines
-    task.max_results = config.max_results;
+    // Create tasks
+    EnqueueFileChunks(filepath, baseTask);
 
-    strncpy(task.filename, filepath.c_str(), sizeof(task.filename));
-    task.filename[sizeof(task.filename) - 1] = '\0';
+    AssignIdleWorkers();
 
-    strncpy(task.keyword, keyword.c_str(), sizeof(task.keyword));
-    task.keyword[sizeof(task.keyword) - 1] = '\0';
+    return searchId;
+}
 
-    std::vector<std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>>> idleWorkers;
-    {
-        std::lock_guard<std::mutex> lock(m_stateMutex);
-
-        while (true) {
-            if ((currentByte + CHUNK_SIZE) >= fileSize) {
-                task.start_offset = currentByte;
-                task.end_offset = fileSize;
-                m_pendingTasks.push_back(task);
-                break;
-            }
-
-            task.start_offset = currentByte;
-            task.end_offset = currentByte + CHUNK_SIZE;
-            m_pendingTasks.push_back(task);
-            
-            // Update next chunk start position
-            currentByte += CHUNK_SIZE;
-        }
-
-        while (!m_idleWorkers.empty()) {
-            std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> currentWorker = nullptr;
-            currentWorker = m_idleWorkers.front();
-
-            idleWorkers.push_back(currentWorker);
-            m_idleWorkers.pop();
-            m_idleWorkersIds.erase(currentWorker->GetID());
-        }
-    }
-
-    m_nextSearchId++;
-    bool isTaskAvailable = true;
-    uint64_t threadsCount = 0;
-
-    for (auto worker : idleWorkers) {
-        if (!isTaskAvailable) {
-            {
-                std::lock_guard<std::mutex> lock(m_stateMutex);
-
-                m_idleWorkers.push(worker);
-                m_idleWorkersIds.insert(worker->GetID());
-            }
-            continue;
-        }
+void MasterServer::AssignIdleWorkers() {
+    while (true) {
+        std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> workerToWakeUp = nullptr;
+        uint64_t threadsCount = 0;
     
         {
             std::lock_guard<std::mutex> lock(m_stateMutex);
-            threadsCount = m_workersFreeSlots[worker->GetID()];
+    
+            if (m_pendingTasks.empty() || m_idleWorkers.empty())
+                break;
+    
+            workerToWakeUp = m_idleWorkers.front();
+            m_idleWorkers.pop();
+            m_idleWorkersIds.erase(workerToWakeUp->GetID());
+
+            threadsCount = m_workersFreeSlots[workerToWakeUp->GetID()];
         }
 
         for (uint64_t i = 0; i < threadsCount; ++i) {
-            if ((isTaskAvailable = DispatchNextTask(worker)) == false)
+            if (!DispatchNextTask(workerToWakeUp))
                 break;
         }
+    }
+}
+
+void MasterServer::EnqueueFileChunks(const std::filesystem::path& filepath, LogSystem::TaskPayload baseTask) {
+    uint64_t fileSize = std::filesystem::file_size(filepath);
+    uint64_t currentByte = 0;
+            
+    std::lock_guard<std::mutex> lock(m_stateMutex);
+    while (currentByte < fileSize) {
+        baseTask.start_offset = currentByte;
+        baseTask.end_offset = std::min(currentByte + CHUNK_SIZE, fileSize);
+        
+        m_pendingTasks.push_back(baseTask);
+        m_sessions[baseTask.search_id].chunks_total++;
+        
+        currentByte += CHUNK_SIZE;
+    }
+}
+
+LogSystem::TaskPayload MasterServer::CreateChunkTask(const std::string& filepath, const std::string& keyword, uint64_t searchId, const SearchConfig& config) {
+    LogSystem::TaskPayload task;
+    task.search_id = searchId;
+    
+    // Maximum count of result lines
+    task.max_results = config.max_results;
+    
+    strncpy(task.filename, filepath.c_str(), sizeof(task.filename));
+    task.filename[sizeof(task.filename) - 1] = '\0';
+    
+    strncpy(task.keyword, keyword.c_str(), sizeof(task.keyword));
+    task.keyword[sizeof(task.keyword) - 1] = '\0';
+
+    return task;
+}
+
+uint64_t MasterServer::RegisterNewSession(const SearchConfig& config) {
+    uint64_t searchId;
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        searchId = m_nextSearchId++;
+    }
+    
+    SearchSession session;
+    session.search_id = searchId;
+    session.path = CreateSessionFilePath(config.output_dir, searchId);
+    
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        m_sessions[searchId] = std::move(session);
     }
 
     return searchId;
@@ -140,8 +142,7 @@ bool MasterServer::OnClientConnect(std::shared_ptr<olc::net::connection<LogSyste
 
 void MasterServer::OnClientDisconnect(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
     uint32_t clientID = client->GetID();
-    
-    // Scope locked block
+
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
         
@@ -159,28 +160,7 @@ void MasterServer::OnClientDisconnect(std::shared_ptr<olc::net::connection<LogSy
         }
     }
     
-    while (true) {
-        std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> workerToWakeUp = nullptr;
-        uint64_t threadsCount  = 0;
-
-        {
-            std::lock_guard<std::mutex> lock(m_stateMutex);
-
-            if (m_pendingTasks.empty() || m_idleWorkers.empty())
-                break;
-
-            workerToWakeUp = m_idleWorkers.front();
-            m_idleWorkers.pop();
-            m_idleWorkersIds.erase(workerToWakeUp->GetID());
-
-            threadsCount = m_workersFreeSlots[workerToWakeUp->GetID()];
-        }
-
-        for (uint64_t i = 0; i < threadsCount; ++i) {
-            if (!DispatchNextTask(workerToWakeUp))
-                break;
-        }
-    }
+    AssignIdleWorkers();
 }
 
 bool MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
