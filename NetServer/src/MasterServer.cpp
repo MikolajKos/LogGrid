@@ -8,11 +8,11 @@
 #define DOCKER_DEBUG
 
 #ifdef DOCKER_DEBUG
-    // 10 KB chunk size
-    const uint64_t CHUNK_SIZE = 10 * 1024;
+    // 5 MB chunk size
+    constexpr uint64_t CHUNK_SIZE = 5 * 1024 * 1024;
 #else
-    // 10MB chunk size
-    const uint64_t CHUNK_SIZE = 10 * 1024 * 1024;
+    // 128 MB chunk size
+    constexpr uint64_t CHUNK_SIZE = 128 * 1024 * 1024;
 #endif
 
 
@@ -24,15 +24,33 @@ MasterServer::MasterServer(uint16_t port)
 
 uint64_t MasterServer::StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) {
     if (!std::filesystem::exists(filepath))
-        throw std::runtime_error("[MASTER] File not found: " + filepath);
+        throw std::runtime_error("[MASTER] Path not found: " + filepath);
     
     uint64_t searchId = RegisterNewSession(config);
     
-    auto baseTask = CreateChunkTask(filepath, keyword, searchId, config);
+    
+    if (std::filesystem::is_directory(filepath)) {
+        // Ignore permition denied and skip those files (avoids throwing error)
+        auto options = std::filesystem::directory_options::skip_permission_denied;
+        
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(filepath, options)) {
+            if (entry.is_regular_file() && entry.file_size() > 0) {
+                auto baseTask = CreateChunkTask(entry.path().string(), keyword, searchId, config);
+                EnqueueFileChunks(entry.path(), baseTask);
+            }
+        }
+    }
+    else if (std::filesystem::is_regular_file(filepath)) {    
+        if (std::filesystem::file_size(filepath) > 0) {
+            auto baseTask = CreateChunkTask(filepath, keyword, searchId, config);
+            EnqueueFileChunks(filepath, baseTask);
+        }
+    }
+    else {
+        throw std::runtime_error("[MASTER] Unsupported path type: " + filepath);
+    }
 
-    // Create tasks
-    EnqueueFileChunks(filepath, baseTask);
-
+    // Wake up idle workers to process tasks
     AssignIdleWorkers();
 
     return searchId;
