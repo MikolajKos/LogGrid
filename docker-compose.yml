@@ -8,6 +8,9 @@ services:
       - "60000:60000"
       - "8080:8080"
     tty: true
+    environment:
+      - LOGGRID_INPUT_DIR=/app/data
+      - LOGGRID_OUTPUT_DIR=/data/loggrid
     volumes:
       - /data/logs:/app/data:ro
       - "/data/loggrid:/data/loggrid"

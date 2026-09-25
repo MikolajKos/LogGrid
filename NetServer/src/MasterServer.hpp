@@ -261,7 +261,8 @@ private:
     uint64_t m_nextSearchId = 0; /**< Monotonically increasing counter for assigning unique search IDs. */
     uint64_t m_nextTaskId = 0; /**< Monotonically increasing counter for assigning unique task IDs. */
 
-    std::string m_base_dir; /**< Root storage sandbox directory for LogGrid session files (e.g. /data/loggrid). */
+    std::string m_base_dir; /**< Root output storage sandbox directory for LogGrid session files (e.g. /data/loggrid). */
+    std::string m_input_dir; /**< Root input directory where logs are stored */
 };
 
 #endif // MASTER_SERVER_HPP

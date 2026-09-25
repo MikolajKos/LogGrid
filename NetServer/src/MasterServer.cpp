@@ -18,32 +18,41 @@
 
 MasterServer::MasterServer(uint16_t port)
     : olc::net::server_interface<LogSystem::LogSearchMsg>(port) {
-    // Reading base dir from environment variable will be implemented
-    m_base_dir = "/data/loggrid";
+    const char* envInput = std::getenv("LOGGRID_INPUT_DIR");
+    m_input_dir = envInput ? envInput : "/app/data";
+
+    const char* envOutput = std::getenv("LOGGRID_OUTPUT_DIR");
+    m_base_dir = envOutput ? envOutput : "/data/loggrid";
 }
 
 uint64_t MasterServer::StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) {
-    if (!std::filesystem::exists(filepath))
-        throw std::runtime_error("[MASTER] Path not found: " + filepath);
+    std::filesystem::path basePath = std::filesystem::path(m_input_dir).lexically_normal();
+    std::filesystem::path targetPath = (basePath / MakeRelative(filepath)).lexically_normal();
+
+    if (!targetPath.string().starts_with(basePath.string()))
+        throw std::runtime_error("[MASTER] Security Alert: Path Traversal attempt blocked!");
+    
+    if (!std::filesystem::exists(targetPath.string()))
+        throw std::runtime_error("[MASTER] Path not found: " + targetPath.string());
     
     uint64_t searchId = RegisterNewSession(config);
     
     
-    if (std::filesystem::is_directory(filepath)) {
+    if (std::filesystem::is_directory(targetPath.string())) {
         // Ignore permition denied and skip those files (avoids throwing error)
         auto options = std::filesystem::directory_options::skip_permission_denied;
         
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(filepath, options)) {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(targetPath, options)) {
             if (entry.is_regular_file() && entry.file_size() > 0) {
                 auto baseTask = CreateChunkTask(entry.path().string(), keyword, searchId, config);
                 EnqueueFileChunks(entry.path(), baseTask);
             }
         }
     }
-    else if (std::filesystem::is_regular_file(filepath)) {    
-        if (std::filesystem::file_size(filepath) > 0) {
-            auto baseTask = CreateChunkTask(filepath, keyword, searchId, config);
-            EnqueueFileChunks(filepath, baseTask);
+    else if (std::filesystem::is_regular_file(targetPath)) {    
+        if (std::filesystem::file_size(targetPath) > 0) {
+            auto baseTask = CreateChunkTask(targetPath.string(), keyword, searchId, config);
+            EnqueueFileChunks(targetPath.string(), baseTask);
         }
     }
     else {
