@@ -77,8 +77,16 @@ Worker   Worker        ← each Worker runs a local ThreadPool
 
 ## Quick Start
 
-Starting the entire distributed cluster takes only seconds:
+### 1. Prepare Log Data
+LogGrid analyzes log files mounted into the cluster (configured via `/data/logs`). You can seed logs in two ways:
 
+* **Option A (Recommended for scale testing):** Use **[CrazyPrinter API](https://github.com/MikolajKos/crazy-printer-api)** to generate multi-gigabyte realistic synthetic log streams into `/data/logs`.
+* **Option B (Quick test):** Create a sample log on your host:
+  ```bash
+  sudo mkdir -p /data/logs && echo "[INFO] Sample log line with ERROR code 404" | sudo tee /data/logs/sample.log
+  ```
+
+### 2. Spin up the LogGrid Cluster
 ```bash
 # 1. Clone the repository
 git clone https://github.com/MikolajKos/LogGrid.git && cd LogGrid
@@ -93,11 +101,11 @@ curl -X POST http://localhost:8080/api/search \
 # → {"searchId": 0}
 
 # To search an entire directory recursively:
-# -d '{"path": "app_logs", "keyword": "ERROR"}'
+# -d '{"path": "", "keyword": "ERROR"}'
 
 # 4. Poll for results
 curl http://localhost:8080/api/status/0
-# → {"searchId": 0, "state": "Done", "chunksDone": 200, "chunksTotal": 200, "linesCount": 42, "totalMatches": 42}
+# → {"searchId": 0, "state": "Done", "chunksDone": 200, "chunksTotal": 200, "linesCount": 1, "totalMatches": 1}
 
 # 5. View live cluster logs
 docker compose logs -f
