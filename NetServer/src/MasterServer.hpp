@@ -214,9 +214,10 @@ private:
      * increments chunks_total in the session under m_stateMutex.
      * 
      * @param filepath Absolute/relative path to the file on disk.
+     * @param fileSize Size of the current file to which path was passed
      * @param baseTask Template task containing search parameters.
      */
-    void EnqueueFileChunks(const std::filesystem::path& filepath, LogSystem::TaskPayload baseTask);
+    void EnqueueFileChunks(const std::filesystem::path& filepath, const uint64_t fileSize, LogSystem::TaskPayload baseTask);
 
     /**
      * @brief Wakes up idle Workers and assigns pending chunks up to their available thread count.
@@ -261,7 +262,8 @@ private:
     uint64_t m_nextSearchId = 0; /**< Monotonically increasing counter for assigning unique search IDs. */
     uint64_t m_nextTaskId = 0; /**< Monotonically increasing counter for assigning unique task IDs. */
 
-    std::string m_base_dir; /**< Root storage sandbox directory for LogGrid session files (e.g. /data/loggrid). */
+    std::string m_base_dir; /**< Root output storage sandbox directory for LogGrid session files (e.g. /data/loggrid). */
+    std::string m_input_dir; /**< Root input directory where logs are stored */
 };
 
 #endif // MASTER_SERVER_HPP

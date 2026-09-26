@@ -23,7 +23,7 @@ namespace LogSystem {
         uint64_t start_offset;
         uint64_t end_offset;
         char keyword[64];       // Search criteria
-        char filename[128];
+        char filename[256];
     };
     
     struct ChunkResult {

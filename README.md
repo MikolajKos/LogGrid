@@ -77,8 +77,16 @@ Worker   Worker        ← each Worker runs a local ThreadPool
 
 ## Quick Start
 
-Starting the entire distributed cluster takes only seconds:
+### 1. Prepare Log Data
+LogGrid analyzes log files mounted into the cluster (configured via `/data/logs`). You can seed logs in two ways:
 
+* **Option A (Recommended for scale testing):** Use **[CrazyPrinter API](https://github.com/MikolajKos/crazy-printer-api)** to generate multi-gigabyte realistic synthetic log streams into `/data/logs`.
+* **Option B (Quick test):** Create a sample log on your host:
+  ```bash
+  sudo mkdir -p /data/logs && echo "[INFO] Sample log line with ERROR code 404" | sudo tee /data/logs/sample.log
+  ```
+
+### 2. Spin up the LogGrid Cluster
 ```bash
 # 1. Clone the repository
 git clone https://github.com/MikolajKos/LogGrid.git && cd LogGrid
@@ -86,15 +94,18 @@ git clone https://github.com/MikolajKos/LogGrid.git && cd LogGrid
 # 2. Spin up Master + Workers
 docker compose up -d --build
 
-# 3. Trigger a search
+# 3. Trigger a search (Single file or entire directory)
 curl -X POST http://localhost:8080/api/search \
   -H "Content-Type: application/json" \
-  -d '{"path": "/app/data/sample.log", "keyword": "ERROR", "outputDir": "quickstart"}'
+  -d '{"path": "sample.log", "keyword": "ERROR", "outputDir": "quickstart"}'
 # → {"searchId": 0}
+
+# To search an entire directory recursively:
+# -d '{"path": "", "keyword": "ERROR"}'
 
 # 4. Poll for results
 curl http://localhost:8080/api/status/0
-# → {"searchId": 0, "state": "Done", "chunksDone": 200, "chunksTotal": 200, "linesCount": 42, "totalMatches": 42}
+# → {"searchId": 0, "state": "Done", "chunksDone": 200, "chunksTotal": 200, "linesCount": 1, "totalMatches": 1}
 
 # 5. View live cluster logs
 docker compose logs -f
@@ -109,7 +120,7 @@ docker compose logs -f
 **Request body:**
 ```json
 {
-  "path": "/app/data/sample.log",
+  "path": "sample.log",
   "keyword": "ERROR|WARN",
   "outputDir": "sessions/errors",
   "maxResults": 10000
@@ -118,10 +129,17 @@ docker compose logs -f
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `path` | string | ✅ | Absolute path to the log file on the shared volume |
-| `keyword` | string | ✅ | Search term or regex pattern |
-| `outputDir` | string | ❌ | Subdirectory to store the aggregated result file |
-| `maxResults` | number | ❌ | Maximum matched lines to collect (default: 10 000) |
+| `path` | string | ✅ | Target log file or directory (resolved relative to `LOGGRID_INPUT_DIR`, default: `/app/data`) |
+| `keyword` | string | ✅ | Search term or regex pattern (ECMAScript syntax) |
+| `outputDir` | string | ❌ | Subdirectory to store the aggregated result file (relative to `LOGGRID_OUTPUT_DIR`, default: `/data/loggrid`) |
+| `maxResults` | number | ❌ | Maximum matched lines to collect into result file (default: 10 000) |
+
+> [!NOTE]
+> **Path Resolution & Sandbox Security:**
+> - `path` accepts both individual files (e.g. `"sample.log"`) and whole directories (e.g. `"app_logs"` or `""` for the input root).
+> - All paths are resolved relative to `LOGGRID_INPUT_DIR` (configured in `docker-compose.yml` or environment).
+> - Path Traversal protection (`../`) is enforced using `.lexically_normal()` to prevent escaping the base sandbox.
+> - When a directory is provided, the Master recursively scans all nested regular files (`recursive_directory_iterator`), skips empty files, and gracefully ignores permission-denied entries.
 
 **Response `202 Accepted`:**
 ```json
@@ -170,14 +188,15 @@ docker compose logs -f
 - [x] **Fault tolerance** — all in-flight tasks atomically reclaimed on Worker disconnect and redistributed across every idle Worker in a single pass
 - [x] **Byte-aligned chunk splitting** — file partitioned at exact line boundaries; Worker ThreadPool processes chunks in parallel with CPU-oversubscription protection
 - [x] **HTTP REST API** — `POST /api/search` triggers distributed search; `GET /api/status/{id}` asynchronously polls real-time session metrics (including `chunksDone` and `totalMatches`)
+- [x] **Recursive Directory Search** — `path` accepts both individual files and directories; Master enumerates all files recursively, skips empty files, and distributes chunks across a single unified search session
+- [x] **Configurable Path Sandboxing** — `LOGGRID_INPUT_DIR` and `LOGGRID_OUTPUT_DIR` environment variables configure host/container paths with built-in Path Traversal protection
 - [x] **Comprehensive CI/CD & testing** — GoogleTest unit and integration suites (parametrized, edge-case, and real TCP end-to-end); gcov/lcov coverage pipeline
 - [x] **Production-grade containerization** — unified multi-stage `Dockerfile`, Docker Compose orchestration, healthcheck-enforced startup ordering, port `8080` exposed for HTTP API
 
 ### Planned
-- [ ] **Directory search** — `path` accepts a directory; Master enumerates all files and distributes chunks across a single search session; result lines tagged with source filename
 - [ ] **Result pagination API** — `GET /api/search/{id}/results?offset=0&count=100` to safely serve the aggregated file lines back to the client
-- [ ] **Plugin Architecture** — refactoring payload parsing to support dynamic analysis modules (WASM/Lua) beyond simple regex
 - [ ] **Cloud deployment** — Master and Workers on AWS EC2; shared log storage on EFS/S3; Worker nodes auto-registered on boot
+- [ ] **Plugin Architecture** — refactoring payload parsing to support dynamic analysis modules (WASM/Lua) beyond simple regex
 
 ---
 
