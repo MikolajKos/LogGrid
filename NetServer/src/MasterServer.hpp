@@ -214,9 +214,10 @@ private:
      * increments chunks_total in the session under m_stateMutex.
      * 
      * @param filepath Absolute/relative path to the file on disk.
+     * @param fileSize Size of the current file to which path was passed
      * @param baseTask Template task containing search parameters.
      */
-    void EnqueueFileChunks(const std::filesystem::path& filepath, LogSystem::TaskPayload baseTask);
+    void EnqueueFileChunks(const std::filesystem::path& filepath, const uint64_t fileSize, LogSystem::TaskPayload baseTask);
 
     /**
      * @brief Wakes up idle Workers and assigns pending chunks up to their available thread count.
