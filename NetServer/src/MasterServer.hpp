@@ -132,10 +132,12 @@ private:
      * cumulative line_count and total_matches. Subsequently invokes WriteResults outside lock.
      * 
      * @param msg Incoming message containing task_id and serialized batch.
+     * @param authoritativeSearchId Search ID pulled from m_inFlightTasks registry
      * @return The task_id that finished execution.
      * @throws std::runtime_error If search_id is unrecognized.
      */
-    void AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg);
+    void AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg, const uint64_t authoritativeSearchId);
+
     /**
      * @brief Deserializes a binary batch payload into a ChunkResult structure.
      * 

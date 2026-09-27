@@ -116,8 +116,14 @@ void MasterServer::AssignIdleWorkers() {
     
             workerToWakeUp = m_idleWorkers.front();
             m_idleWorkers.pop();
-            m_idleWorkersIds.erase(workerToWakeUp->GetID());
 
+            auto itSlots = m_workersFreeSlots.find(workerToWakeUp->GetID());
+            
+            // Skip deleted or disconnected workers
+            if (itSlots == m_workersFreeSlots.end())
+                continue;
+
+            m_idleWorkersIds.erase(workerToWakeUp->GetID());
             threadsCount = m_workersFreeSlots[workerToWakeUp->GetID()];
         }
 
@@ -215,6 +221,10 @@ void MasterServer::OnClientDisconnect(std::shared_ptr<olc::net::connection<LogSy
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
         
+        // Erase disconnected client
+        m_workersFreeSlots.erase(clientID);
+        m_idleWorkersIds.erase(clientID);
+        
         // Adding back task from disconnected client
         auto it = m_inFlightTasks.find(clientID);
         
@@ -223,7 +233,7 @@ void MasterServer::OnClientDisconnect(std::shared_ptr<olc::net::connection<LogSy
                 m_pendingTasks.push_front(task.second);
             }
             
-            // Erasing old client because new one will be added
+            // Erasing old client because new one will be woken up
             m_inFlightTasks.erase(it);
             std::cout << "[MASTER] Fault Tolerance triggered. Reclaimed task from lost Worker ID: " << clientID << "\n";
         }
@@ -235,6 +245,9 @@ void MasterServer::OnClientDisconnect(std::shared_ptr<olc::net::connection<LogSy
 bool MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
     std::lock_guard<std::mutex> lock(m_stateMutex);
 
+    if (!m_workersFreeSlots.count(client->GetID()))
+        return false;
+    
     auto idleWorkerIds_it = m_idleWorkersIds.find(client->GetID());
     
     if (!m_pendingTasks.empty()) {
@@ -289,7 +302,10 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
             msg >> result;
             threadsCount = result.threads_available;
 
-            m_workersFreeSlots[client->GetID()] = threadsCount;
+            {
+                std::lock_guard<std::mutex> lock(m_stateMutex);
+                m_workersFreeSlots[client->GetID()] = threadsCount;
+            }
 
             for (uint64_t i = 0; i < threadsCount; ++i) {
                 // If threads > tasks available
@@ -302,53 +318,59 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
         }
         case LogSystem::LogSearchMsg::Worker_TaskDone: {
             std::cout << "[MASTER] Worker: " << client->GetID() << " finished asigned task\n";
-
-            uint64_t searchId = 0;
-            bool searchComplete = false;
             
             uint64_t taskId = 0;
             msg >> taskId;
             
+            uint64_t authoritativeSearchId = 0;
+            bool taskExists = false;
+            
+            {
+                std::lock_guard<std::mutex> lock(m_stateMutex);
+                auto it = m_inFlightTasks.find(client->GetID());
+                if (it != m_inFlightTasks.end() && it->second.count(taskId)) {
+                    authoritativeSearchId = it->second[taskId].search_id;
+                    taskExists = true;
+                    
+                    it->second.erase(taskId);
+                    if (it->second.empty())
+                    m_inFlightTasks.erase(it);
+
+                    m_workersFreeSlots[client->GetID()]++;
+                }
+            }
+            
+            if (!taskExists) {
+                std::cout << "[MASTER] Received unknown taskId from Worker.\n";
+                break;
+            }
+            
+            // Dispatch next task before I/O file writing is triggered
+            DispatchNextTask(client);
+            
             try {
-                AggregateTaskResult(msg);
+                AggregateTaskResult(msg, authoritativeSearchId);
             }
             catch(const std::exception& e) {
                 std::cout << "[MASTER] Aggregation error: " << e.what() << "\n";
             }
             
             // Always clear resources
+            bool searchComplete = false;
             {
                 std::lock_guard<std::mutex> lock(m_stateMutex);
+                if (m_sessions.count(authoritativeSearchId)) {
+                    auto& session = m_sessions[authoritativeSearchId];
+                    session.chunks_done++;
 
-                // New worker thread is free now
-                m_workersFreeSlots[client->GetID()]++;
-                
-                auto it = m_inFlightTasks.find(client->GetID());
-                if (it != m_inFlightTasks.end()) {
-                    auto& workerTasks = it->second;
-
-                    if (workerTasks.count(taskId)) {
-                        searchId = workerTasks[taskId].search_id;
-                        workerTasks.erase(taskId);
-                        
-                        if (workerTasks.empty())
-                            m_inFlightTasks.erase(it);
-    
-                        if (m_sessions.count(searchId)) {
-                            auto& session = m_sessions[searchId];
-                            session.chunks_done++;
-                        
-                            if (session.chunks_done == session.chunks_total)
-                                searchComplete = true;
-                        }
-                    }
+                    if (session.chunks_done == session.chunks_total)
+                        searchComplete = true;
                 }
             }
 
-            DispatchNextTask(client);
 
             if (searchComplete) {
-                std::cout << "[MASTER] Search ID: " << searchId << " complete. Results delivered.\n";
+                std::cout << "[MASTER] Search ID: " << authoritativeSearchId << " complete. Results delivered.\n";
             }
 
             break;
@@ -359,8 +381,9 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
     }
 }
 
-void MasterServer::AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg) {
+void MasterServer::AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg, const uint64_t authoritativeSearchId) {
     LogSystem::ChunkResult batch = DeserializeBatch(msg);
+    batch.search_id = authoritativeSearchId; // Override search_id received from worker
 
     size_t linesToWrite = 0;
     {

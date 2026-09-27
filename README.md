@@ -105,7 +105,7 @@ curl -X POST http://localhost:8080/api/search \
 
 # 4. Poll for results
 curl http://localhost:8080/api/status/0
-# → {"searchId": 0, "state": "Done", "chunksDone": 200, "chunksTotal": 200, "linesCount": 1, "totalMatches": 1}
+# → {"searchId": 0, "state": "Done", "chunksDone": 1, "chunksTotal": 1, "linesCount": 1, "totalMatches": 1}
 
 # 5. View live cluster logs
 docker compose logs -f
