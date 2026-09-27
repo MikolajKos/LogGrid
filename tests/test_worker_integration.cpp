@@ -113,7 +113,7 @@ TEST_F(WorkerClientMsgIntegrationTest, WorkerFindsLinesAndSendsBatchTest) {
     EXPECT_EQ(batch.total_matches, 1);
     EXPECT_EQ(batch.lines_found, 1);
     ASSERT_EQ(batch.lines.size(), 1);
-    EXPECT_EQ(batch.lines[0], "ERROR LINE");
+    EXPECT_EQ(batch.lines[0], "test_file.log: ERROR LINE");
     
     std::filesystem::remove("test_file.log");
 }

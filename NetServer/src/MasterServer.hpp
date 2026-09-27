@@ -132,10 +132,11 @@ private:
      * cumulative line_count and total_matches. Subsequently invokes WriteResults outside lock.
      * 
      * @param msg Incoming message containing task_id and serialized batch.
+     * @param authoritativeSearchId Search ID pulled from m_inFlightTasks registry
      * @return The task_id that finished execution.
      * @throws std::runtime_error If search_id is unrecognized.
      */
-    uint64_t AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg);
+    void AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg, const uint64_t authoritativeSearchId);
 
     /**
      * @brief Deserializes a binary batch payload into a ChunkResult structure.
@@ -214,9 +215,10 @@ private:
      * increments chunks_total in the session under m_stateMutex.
      * 
      * @param filepath Absolute/relative path to the file on disk.
+     * @param fileSize Size of the current file to which path was passed
      * @param baseTask Template task containing search parameters.
      */
-    void EnqueueFileChunks(const std::filesystem::path& filepath, LogSystem::TaskPayload baseTask);
+    void EnqueueFileChunks(const std::filesystem::path& filepath, const uint64_t fileSize, LogSystem::TaskPayload baseTask);
 
     /**
      * @brief Wakes up idle Workers and assigns pending chunks up to their available thread count.
@@ -225,6 +227,31 @@ private:
      * and calls DispatchNextTask() for each of their free slots, stopping immediately if tasks run out.
      */
     void AssignIdleWorkers();
+
+    /**
+     * @brief Recursively scans a directory using standard iteration to ensure fault tolerance against missing files.
+     * 
+     * Iterates horizontally (DFS) and explicitly ignores missing subdirectories (e.g. from log rotation) 
+     * without terminating the global search.
+     * 
+     * @param dir Directory to scan.
+     * @param keyword The regex pattern to search for.
+     * @param searchId The ID of the session.
+     * @param config The search configuration.
+     */
+    void ScanDirectoryRecursively(const std::filesystem::path& dir, const std::string& keyword, uint64_t searchId, const SearchConfig& config);
+
+    /**
+     * @brief Reads file size, validates path length, and enqueues chunks for a single log file.
+     * 
+     * Extracted to prevent code duplication between the root file handling and recursive file traversal.
+     * 
+     * @param targetPath The single regular file to process.
+     * @param keyword The regex pattern to search for.
+     * @param searchId The ID of the session.
+     * @param config The search configuration.
+     */
+    void ProcessSingleFile(const std::filesystem::path& targetPath, const std::string& keyword, uint64_t searchId, const SearchConfig& config);
 private:
     std::mutex m_stateMutex; /**< Primary mutex protecting all shared scheduler and session state. */
 
@@ -261,7 +288,8 @@ private:
     uint64_t m_nextSearchId = 0; /**< Monotonically increasing counter for assigning unique search IDs. */
     uint64_t m_nextTaskId = 0; /**< Monotonically increasing counter for assigning unique task IDs. */
 
-    std::string m_base_dir; /**< Root storage sandbox directory for LogGrid session files (e.g. /data/loggrid). */
+    std::string m_base_dir; /**< Root output storage sandbox directory for LogGrid session files (e.g. /data/loggrid). */
+    std::string m_input_dir; /**< Root input directory where logs are stored */
 };
 
 #endif // MASTER_SERVER_HPP
