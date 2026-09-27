@@ -227,6 +227,31 @@ private:
      * and calls DispatchNextTask() for each of their free slots, stopping immediately if tasks run out.
      */
     void AssignIdleWorkers();
+
+    /**
+     * @brief Recursively scans a directory using standard iteration to ensure fault tolerance against missing files.
+     * 
+     * Iterates horizontally (DFS) and explicitly ignores missing subdirectories (e.g. from log rotation) 
+     * without terminating the global search.
+     * 
+     * @param dir Directory to scan.
+     * @param keyword The regex pattern to search for.
+     * @param searchId The ID of the session.
+     * @param config The search configuration.
+     */
+    void ScanDirectoryRecursively(const std::filesystem::path& dir, const std::string& keyword, uint64_t searchId, const SearchConfig& config);
+
+    /**
+     * @brief Reads file size, validates path length, and enqueues chunks for a single log file.
+     * 
+     * Extracted to prevent code duplication between the root file handling and recursive file traversal.
+     * 
+     * @param targetPath The single regular file to process.
+     * @param keyword The regex pattern to search for.
+     * @param searchId The ID of the session.
+     * @param config The search configuration.
+     */
+    void ProcessSingleFile(const std::filesystem::path& targetPath, const std::string& keyword, uint64_t searchId, const SearchConfig& config);
 private:
     std::mutex m_stateMutex; /**< Primary mutex protecting all shared scheduler and session state. */
 

@@ -49,43 +49,10 @@ uint64_t MasterServer::StartSearch(const std::string& filepath, const std::strin
         optSearchId = searchId;
         
         if (std::filesystem::is_directory(targetPath.string())) {
-            // Ignore permition denied and skip those files (avoids throwing error)
-            auto options = std::filesystem::directory_options::skip_permission_denied;
-            
-            for (const auto& entry : std::filesystem::recursive_directory_iterator(targetPath, options)) {
-                if (entry.is_regular_file(ec) && !entry.is_symlink(ec)) {
-                    auto sz = entry.file_size(ec);
-                    
-                    if (!ec && sz > 0) {
-                        std::string filePathStr = entry.path().string();
-                            
-                        // 5. Fix P1: Ochrona przed obcięciem zbyt długiej ścieżki
-                        if (filePathStr.length() >= sizeof(LogSystem::TaskPayload::filename)) {
-                            std::cout << "[MASTER] Warning: Path too long, skipping: " << filePathStr << "\n";
-                            continue;
-                        }
-        
-                        auto baseTask = CreateChunkTask(filePathStr, keyword, searchId, config);
-                        EnqueueFileChunks(entry.path(), sz, baseTask);
-                    }
-                }
-            }
+            ScanDirectoryRecursively(targetPath, keyword, searchId, config);
         }
         else if (std::filesystem::is_regular_file(targetPath)) {
-            auto sz = std::filesystem::file_size(targetPath, ec);
-            
-            if (ec)
-                throw std::runtime_error("[MASTER] Failed to read file size: " + ec.message());
-
-            if (sz > 0) {
-                std::string filePathStr = targetPath.string();
-            
-                if (filePathStr.length() >= sizeof(LogSystem::TaskPayload::filename))
-                    throw std::runtime_error("[MASTER] File path exceeds maximum length: " + filePathStr);
-            
-                auto baseTask = CreateChunkTask(filePathStr, keyword, searchId, config);
-                EnqueueFileChunks(targetPath, sz, baseTask);
-            }
+            ProcessSingleFile(targetPath, keyword, searchId, config);
         }
         else {
             throw std::runtime_error("[MASTER] Unsupported path type: " + filepath);
@@ -93,7 +60,17 @@ uint64_t MasterServer::StartSearch(const std::string& filepath, const std::strin
     }
     catch (const std::exception& e) {
         std::lock_guard<std::mutex> lock(m_stateMutex);
-        if (optSearchId) m_sessions.erase(*optSearchId);
+        
+        if (optSearchId) {
+            // If session was created but method failed in runtime, delete this session
+            m_sessions.erase(*optSearchId);
+
+            // Remove orphaned tasks assign to this session
+            std::erase_if(m_pendingTasks, [&](const LogSystem::TaskPayload& t) {
+                return t.search_id == *optSearchId;
+            });
+        }
+
         throw;
     }
 
@@ -101,6 +78,42 @@ uint64_t MasterServer::StartSearch(const std::string& filepath, const std::strin
     AssignIdleWorkers();
 
     return *optSearchId;
+}
+
+void MasterServer::ScanDirectoryRecursively(const std::filesystem::path& dir, const std::string& keyword, uint64_t searchId, const SearchConfig& config) {
+    std::error_code ec;
+    // skip permission denied
+    auto options = std::filesystem::directory_options::skip_permission_denied;
+    auto it = std::filesystem::directory_iterator(dir, options, ec);
+
+    if (ec) return;
+
+    for (auto end = std::filesystem::directory_iterator(); it != end; it.increment(ec)) {
+        if (ec) break; // Error inside catalog breaks only current catalog
+
+        auto& entry = *it;
+        if (entry.is_directory(ec)) {
+            ScanDirectoryRecursively(entry.path(), keyword, searchId, config);
+        }
+        else if (entry.is_regular_file(ec) && !entry.is_symlink(ec)) {
+            ProcessSingleFile(entry.path(), keyword, searchId, config);
+        }
+    }
+}
+
+void MasterServer::ProcessSingleFile(const std::filesystem::path& targetPath, const std::string& keyword, uint64_t searchId, const SearchConfig& config) {
+    std::error_code ec;
+    auto sz = std::filesystem::file_size(targetPath, ec);
+
+    if (!ec && sz > 0) {
+        std::string filePathStr = targetPath.string();
+        if (filePathStr.length() >= sizeof(LogSystem::TaskPayload::filename)) {
+            std::cout << "[MASTER] Warning: Path too long, skipping: " << filePathStr << "\n";
+        } else {
+            auto baseTask = CreateChunkTask(filePathStr, keyword, searchId, config);
+            EnqueueFileChunks(targetPath, sz, baseTask);
+        }
+    }
 }
 
 void MasterServer::AssignIdleWorkers() {

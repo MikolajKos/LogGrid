@@ -1,6 +1,7 @@
 #ifndef FILE_PROCESSOR_HPP
 #define FILE_PROCESSOR_HPP
 
+#include <format>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -63,10 +64,9 @@ public:
             // Line Found - update batch
             if (std::regex_search(line, pattern)) {
                 if (batch.lines_found < maxLineCount) {
-                    batch.lines.push_back(line);
+                    batch.lines.emplace_back(std::format("{}: {}", task.filename, line));
                     batch.lines_found++;
                 }
-                
                 batch.total_matches++;
             }
 
