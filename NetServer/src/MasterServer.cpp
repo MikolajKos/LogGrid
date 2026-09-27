@@ -306,44 +306,51 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
             uint64_t searchId = 0;
             bool searchComplete = false;
             
+            uint64_t taskId = 0;
+            msg >> taskId;
+            
             try {
-                uint64_t taskId = AggregateTaskResult(msg);
-                
-                {
-                    std::lock_guard<std::mutex> lock(m_stateMutex);
-
-                    // New worker thread is free now
-                    m_workersFreeSlots[client->GetID()]++;
-                    
-                    auto it = m_inFlightTasks.find(client->GetID());
-                    if (it != m_inFlightTasks.end()) {
-                        // Inner map contains all tasks assigned to a single worker
-                        auto& innerMap = it->second;
-
-                        searchId = innerMap[taskId].search_id;
-                        innerMap.erase(taskId);
-                        
-                        if (innerMap.empty())
-                            m_inFlightTasks.erase(it);
-
-                        auto& session = m_sessions[searchId];
-                        session.chunks_done++;
-                    
-                        if (session.chunks_done == session.chunks_total)
-                            searchComplete = true;
-                    }
-                }
-
-                DispatchNextTask(client);
-
-                if (searchComplete) {
-                    std::cout << "[MASTER] Search ID: " << searchId << " complete. Results delivered.\n";
-                }
+                AggregateTaskResult(msg);
             }
-            catch (const std::runtime_error& e) {
-                std::cout << e.what() << "\n";
+            catch(const std::exception& e) {
+                std::cout << "[MASTER] Aggregation error: " << e.what() << "\n";
             }
             
+            // Always clear resources
+            {
+                std::lock_guard<std::mutex> lock(m_stateMutex);
+
+                // New worker thread is free now
+                m_workersFreeSlots[client->GetID()]++;
+                
+                auto it = m_inFlightTasks.find(client->GetID());
+                if (it != m_inFlightTasks.end()) {
+                    auto& workerTasks = it->second;
+
+                    if (workerTasks.count(taskId)) {
+                        searchId = workerTasks[taskId].search_id;
+                        workerTasks.erase(taskId);
+                        
+                        if (workerTasks.empty())
+                            m_inFlightTasks.erase(it);
+    
+                        if (m_sessions.count(searchId)) {
+                            auto& session = m_sessions[searchId];
+                            session.chunks_done++;
+                        
+                            if (session.chunks_done == session.chunks_total)
+                                searchComplete = true;
+                        }
+                    }
+                }
+            }
+
+            DispatchNextTask(client);
+
+            if (searchComplete) {
+                std::cout << "[MASTER] Search ID: " << searchId << " complete. Results delivered.\n";
+            }
+
             break;
         }
         default:
@@ -352,11 +359,7 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
     }
 }
 
-uint64_t MasterServer::AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg) {
-    uint64_t taskId;
-    // back message data is taskId
-    msg >> taskId;
-    
+void MasterServer::AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg) {
     LogSystem::ChunkResult batch = DeserializeBatch(msg);
 
     size_t linesToWrite = 0;
@@ -386,9 +389,6 @@ uint64_t MasterServer::AggregateTaskResult(olc::net::message<LogSystem::LogSearc
         }
         WriteResults(batch.lines, batch.search_id);
     }
-
-    
-    return taskId;
 }
 
 LogSystem::ChunkResult MasterServer::DeserializeBatch(olc::net::message<LogSystem::LogSearchMsg>& msg) {

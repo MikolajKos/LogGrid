@@ -135,8 +135,7 @@ private:
      * @return The task_id that finished execution.
      * @throws std::runtime_error If search_id is unrecognized.
      */
-    uint64_t AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg);
-
+    void AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg);
     /**
      * @brief Deserializes a binary batch payload into a ChunkResult structure.
      * 
