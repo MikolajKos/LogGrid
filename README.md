@@ -10,7 +10,6 @@
 [![Google Test](https://img.shields.io/badge/gtest-Testing-23a71b?logo=c%2B%2B&logoColor=fff)](https://github.com/google/googletest)
 [![Doxygen](https://img.shields.io/badge/Doxygen-Documentation-4A86CF?logo=readthedocs&logoColor=fff)](https://www.doxygen.nl/)
 [![Status: WIP](https://img.shields.io/badge/Status-WIP%20(it's%20alive)-orange)]()
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 **LogGrid** is a fast, distributed log analysis and search system inspired by **MapReduce** and **Splunk** architectures. It is designed for parallel processing of gigabytes of log files distributed across multiple stateless compute nodes, triggered and queried through an asynchronous REST HTTP API.
 
