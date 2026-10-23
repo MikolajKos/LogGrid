@@ -226,3 +226,5 @@ docker compose logs -f
 ## Acknowledgments
 
 The foundational networking layer (socket management, asynchronous thread-safe queues) is based on the `olc::net` architecture by [javidx9 (OneLoneCoder)](https://github.com/OneLoneCoder). LogGrid extends this core with a custom application protocol, REST HTTP API, robust fault tolerance, and multi-threaded data processing.
+
+_Copyright (c) 2026 Mikołaj Kosiorek. All rights reserved_
