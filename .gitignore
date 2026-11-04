@@ -71,6 +71,9 @@ Testing/
 .cache/
 
 # Local dev notes (personal, not for repo)
+CLAUDE.md
+THESIS_CONTEXT.md
+MVP_JANUARY_2027.md
 DEV_NOTES.md
 GEMINI.md
 architecture_decisions.md
