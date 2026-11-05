@@ -11,10 +11,11 @@ enum class SearchState { Running, Done };
 
 struct SearchStatus {
     SearchState state;
-    uint64_t lines_found = 0;
-    uint64_t total_matches;
-    int chunks_done = 0;
-    int chunks_total = 0;
+    uint64_t lines_found{0};
+    uint64_t total_matches{0};
+    uint64_t scan_errors{0};
+    int chunks_done{0};
+    int chunks_total{0};
 };
 
 struct SearchConfig {

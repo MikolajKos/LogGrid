@@ -52,17 +52,22 @@ uint64_t MasterServer::StartSearch(const std::string& filepath, const std::strin
 
     // Helper vector for collecting chunks from all files before enqueuing them on m_pendingTasks
     std::vector<LogSystem::TaskPayload> newTasks;
-    
+
     if (std::filesystem::is_directory(targetCanon)) {
-        ScanDirectoryRecursively(targetCanon, keyword, searchId, config, newTasks);
+        ScanDirectoryRecursively(targetCanon, keyword, searchId, config, newTasks, session.scan_errors);
     }
     else if (std::filesystem::is_regular_file(targetCanon)) {
-        ProcessSingleFile(targetCanon, keyword, searchId, config, newTasks);
+        if(!ProcessSingleFile(targetCanon, keyword, searchId, config, newTasks))
+            throw std::runtime_error("[MASTER] Error occurred while reading a file: " + filepath);
     }
     else {
         throw std::runtime_error("[MASTER] Unsupported path type: " + filepath);
     }
 
+    // Nothing could be searched and something failed
+    if (newTasks.empty() && session.scan_errors > 0)
+        throw std::runtime_error("[MASTER] Could not scan path: " + filepath);
+    
     AddPendingTasks(std::move(session), newTasks);
 
     // Wake up idle workers to process tasks
@@ -71,42 +76,69 @@ uint64_t MasterServer::StartSearch(const std::string& filepath, const std::strin
     return searchId;
 }
 
-void MasterServer::ScanDirectoryRecursively(const std::filesystem::path& dir, const std::string& keyword, uint64_t searchId, const SearchConfig& config, std::vector<LogSystem::TaskPayload>& outTasks) {
+void MasterServer::ScanDirectoryRecursively(const std::filesystem::path& dir, const std::string& keyword, uint64_t searchId, const SearchConfig& config, std::vector<LogSystem::TaskPayload>& outTasks, uint64_t& scanErrors) {
     std::error_code ec;
-    // skip permission denied
-    auto options = std::filesystem::directory_options::skip_permission_denied;
-    auto it = std::filesystem::directory_iterator(dir, options, ec);
+    auto it = std::filesystem::directory_iterator(dir, ec);
 
-    if (ec) return;
+    if (ec) {
+        std::cout << "[MASTER] Scan error: cannot open directory " << dir.string() << ": " << ec.message() << "\n";
+        ++scanErrors;
+        return;
+    }
 
     for (auto end = std::filesystem::directory_iterator(); it != end; it.increment(ec)) {
-        if (ec) break; // Error inside catalog breaks only current catalog
-
+        
         auto& entry = *it;
-
-        if (entry.is_symlink(ec) || ec) continue;
-
+        
+        if (entry.is_symlink(ec) || ec) {
+            if (ec) {
+                std::cout << "[MASTER] Scan error: cannot examine " << entry.path().string() << ": " << ec.message() << "\n";
+                ++scanErrors;
+            }
+            continue;
+        }
+        
         if (entry.is_directory(ec)) {
-            ScanDirectoryRecursively(entry.path(), keyword, searchId, config, outTasks);
+            ScanDirectoryRecursively(entry.path(), keyword, searchId, config, outTasks, scanErrors);
         }
         else if (entry.is_regular_file(ec)) {
-            ProcessSingleFile(entry.path(), keyword, searchId, config, outTasks);
+            if (!ProcessSingleFile(entry.path(), keyword, searchId, config, outTasks))
+                ++scanErrors;
         }
+        else if (ec) {
+            std::cout << "[MASTER] Scan error: cannot examine " << entry.path().string() << ": " << ec.message() << "\n";
+            ++scanErrors;
+        }
+    }
+
+    // A failed increment makes the iterator equal to end, so the rest of this directory is lost
+    if (ec) {
+        std::cout << "[MASTER] Scan error: listing of " << dir.string() << " stopped early: " << ec.message() << "\n";
+        ++scanErrors;
     }
 }
 
-void MasterServer::ProcessSingleFile(const std::filesystem::path& targetPath, const std::string& keyword, uint64_t searchId, const SearchConfig& config, std::vector<LogSystem::TaskPayload>& outTasks) {
+bool MasterServer::ProcessSingleFile(const std::filesystem::path& targetPath, const std::string& keyword, uint64_t searchId, const SearchConfig& config, std::vector<LogSystem::TaskPayload>& outTasks) {
     std::error_code ec;
     auto sz = std::filesystem::file_size(targetPath, ec);
+    
+    std::string filePathStr = targetPath.string();
 
-    if (!ec && sz > 0) {
-        std::string filePathStr = targetPath.string();
-        if (filePathStr.length() >= sizeof(LogSystem::TaskPayload::filename)) {
-            std::cout << "[MASTER] Warning: Path too long, skipping: " << filePathStr << "\n";
-        } else {
-            auto baseTask = CreateChunkTask(filePathStr, keyword, searchId, config);
-            EnqueueFileChunks(targetPath, sz, baseTask, outTasks);
-        }
+    if (ec) {
+        std::cout << "[MASTER] Error occurred while reading a file: " << filePathStr << "\n";
+        return false;
+    }
+
+    // Empty file is valid
+    if (sz == 0) return true;
+    
+    if (filePathStr.length() >= sizeof(LogSystem::TaskPayload::filename)) {
+        std::cout << "[MASTER] Warning: Path too long, skipping: " << filePathStr << "\n";
+        return false;
+    } else {
+        auto baseTask = CreateChunkTask(filePathStr, keyword, searchId, config);
+        EnqueueFileChunks(targetPath, sz, baseTask, outTasks);
+        return true;
     }
 }
 
@@ -210,6 +242,7 @@ std::optional<SearchStatus> MasterServer::GetStatus(const uint64_t search_id) {
         session.chunks_done == session.chunks_total ? SearchState::Done : SearchState::Running,
         session.line_count,
         session.total_matches,
+        session.scan_errors,
         session.chunks_done,
         session.chunks_total
     };

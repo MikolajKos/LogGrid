@@ -27,6 +27,7 @@ struct SearchSession {
     uint64_t max_results{0};   /**< Max lines count that can be stored in result file in this session */
     uint64_t total_matches{0}; /**< Total count of regex matches detected across all processed chunks. */
     uint64_t line_count{0};    /**< Number of matched lines written to disk (bounded by max_results). */
+    uint64_t scan_errors{0};   /**< Number of files or directories that could not be examined during the scan. */
     int chunks_total = 0;      /**< Total number of byte-aligned chunks into which the file(s) were sliced. */
     int chunks_done = 0;       /**< Number of chunks completed and acknowledged by Workers. */
 };
@@ -64,7 +65,9 @@ public:
      * @param keyword Regex search pattern or exact keyword.
      * @param config Session configuration options (max_results limit, output_dir).
      * @return Unique search_id identifying the job.
-     * @throws std::runtime_error If the input filepath does not exist or if path traversal is detected.
+     * @throws std::runtime_error If the input filepath does not exist, resolves outside the input
+     *         directory, names a single file that cannot be processed, or names a directory whose
+     *         scan produced no tasks and hit at least one error.
      */
     uint64_t StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) override;
 
@@ -247,30 +250,36 @@ private:
     /**
      * @brief Recursively scans a directory using standard iteration to ensure fault tolerance against missing files.
      * 
-     * Explicitly ignores missing subdirectories (e.g. from log rotation) 
-     * without terminating the global search.
-     * 
+     * An entry the Master cannot examine (e.g. a file removed by log rotation or a directory without
+     * read permission) does not terminate the global search; it is counted in scanErrors instead.
+     * Symlinks are skipped deliberately and are not counted as errors. A file's contents are not
+     * checked here: Workers open it later, so a file they cannot read is not counted.
+     *
      * @param dir Directory to scan.
      * @param keyword The regex pattern to search for.
      * @param searchId The ID of the session.
      * @param config The search configuration.
      * @param outTasks Caller-owned list shared by all recursion levels; chunks of every file found are appended to it.
+     * @param scanErrors Caller-owned counter shared by all recursion levels; incremented for each failure.
      */
-    void ScanDirectoryRecursively(const std::filesystem::path& dir, const std::string& keyword, uint64_t searchId, const SearchConfig& config, std::vector<LogSystem::TaskPayload>& outTasks);
+    void ScanDirectoryRecursively(const std::filesystem::path& dir, const std::string& keyword, uint64_t searchId, const SearchConfig& config, std::vector<LogSystem::TaskPayload>& outTasks, uint64_t& scanErrors);
 
     /**
      * @brief Reads file size, validates path length, and appends the file's chunks to a local task list.
      *
      * Extracted to prevent code duplication between the root file handling and recursive file traversal.
-     * Empty files, files whose size cannot be read, and paths too long for TaskPayload::filename are skipped.
+     * The caller decides how to react to a failure: a directory scan counts it and continues,
+     * while a search targeting this file directly fails.
      *
      * @param targetPath The single regular file to process.
      * @param keyword The regex pattern to search for.
      * @param searchId The ID of the session.
      * @param config The search configuration.
      * @param outTasks Caller-owned list of tasks being built for the session; chunks are appended to it.
+     * @return true if the file was handled, including an empty file that produces no chunks;
+     *         false if its size cannot be read or its path is too long for TaskPayload::filename.
      */
-    void ProcessSingleFile(const std::filesystem::path& targetPath, const std::string& keyword, uint64_t searchId, const SearchConfig& config, std::vector<LogSystem::TaskPayload>& outTasks);
+    bool ProcessSingleFile(const std::filesystem::path& targetPath, const std::string& keyword, uint64_t searchId, const SearchConfig& config, std::vector<LogSystem::TaskPayload>& outTasks);
 
     /**
      * @brief Atomically publishes a fully built session together with all of its tasks.

@@ -105,7 +105,7 @@ curl -X POST http://localhost:8080/api/search \
 
 # 4. Poll for results
 curl http://localhost:8080/api/status/0
-# → {"searchId": 0, "state": "Done", "chunksDone": 1, "chunksTotal": 1, "linesCount": 1, "totalMatches": 1}
+# → {"searchId": 0, "state": "Done", "chunksDone": 1, "chunksTotal": 1, "linesCount": 1, "totalMatches": 1, "scanErrors": 0}
 
 # 5. View live cluster logs
 docker compose logs -f
@@ -138,13 +138,16 @@ docker compose logs -f
 > **Path Resolution & Sandbox Security:**
 > - `path` accepts both individual files (e.g. `"sample.log"`) and whole directories (e.g. `"app_logs"` or `""` for the input root).
 > - All paths are resolved relative to `LOGGRID_INPUT_DIR` (configured in `docker-compose.yml` or environment).
-> - Path Traversal protection (`../`) is enforced using `.lexically_normal()` to prevent escaping the base sandbox.
-> - When a directory is provided, the Master recursively scans all nested regular files (`recursive_directory_iterator`), skips empty files, and gracefully ignores permission-denied entries.
+> - Paths are resolved with `std::filesystem::canonical`, including every symlink, and must stay inside the sandbox. Workers receive the resolved path, so the input directory must be mounted at the same location on the Master and all Workers.
+> - A symlink named directly in `path` is accepted if its target is inside the sandbox.
+> - When a directory is provided, the Master recursively scans all nested regular files, skips empty files and symlinks, and counts entries it cannot examine in `scanErrors` without aborting the search.
 
 **Response `202 Accepted`:**
 ```json
 { "searchId": 0 }
 ```
+
+**Response `404 Not Found`:** returned when `path` does not exist or resolves outside the sandbox, when a requested file cannot be processed (for example, its path is too long), or when a directory scan produced no tasks and hit at least one error.
 
 ---
 
@@ -158,7 +161,8 @@ docker compose logs -f
   "chunksDone": 14,
   "chunksTotal": 200,
   "linesCount": 382,
-  "totalMatches": 405
+  "totalMatches": 405,
+  "scanErrors": 0
 }
 ```
 
@@ -170,9 +174,13 @@ docker compose logs -f
   "chunksDone": 200,
   "chunksTotal": 200,
   "linesCount": 10000,
-  "totalMatches": 15420
+  "totalMatches": 15420,
+  "scanErrors": 0
 }
 ```
+
+> [!IMPORTANT]
+> `scanErrors` counts files and directories the Master could not examine while scanning. `"state": "Done"` with `scanErrors` above 0 means the search covered only part of the requested path. Files that a Worker fails to open are not counted yet and appear as chunks with no matches.
 
 **Response `404 Not Found`:** returned when the `id` does not correspond to any known search session.
 
