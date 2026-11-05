@@ -161,6 +161,18 @@ INSTANTIATE_TEST_SUITE_P(
             "", 0, 0,
             "[invalid",
             0
+        },
+
+        FileTestCase{
+            "LineAtBoundaryNotReadByPreviousChunk",
+            "aaaa\nMATCH\nbbbb\n",
+            0, 5, "MATCH", 0
+        },
+
+        FileTestCase{
+            "LineAtBoundaryReadByNextChunk",
+            "aaaa\nMATCH\nbbbb\n",
+            5, 16, "MATCH", 1
         }
     ),
     // Format test names for the console output

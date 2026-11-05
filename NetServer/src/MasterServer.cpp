@@ -8,34 +8,138 @@
 #define DOCKER_DEBUG
 
 #ifdef DOCKER_DEBUG
-    // 10 KB chunk size
-    const uint64_t CHUNK_SIZE = 10 * 1024;
+    // 5 MB chunk size
+    constexpr uint64_t CHUNK_SIZE = 5 * 1024 * 1024;
 #else
-    // 10MB chunk size
-    const uint64_t CHUNK_SIZE = 10 * 1024 * 1024;
+    // 128 MB chunk size
+    constexpr uint64_t CHUNK_SIZE = 128 * 1024 * 1024;
 #endif
 
 
 MasterServer::MasterServer(uint16_t port)
     : olc::net::server_interface<LogSystem::LogSearchMsg>(port) {
-    // Reading base dir from environment variable will be implemented
-    m_base_dir = "/data/loggrid";
+    const char* envInput = std::getenv("LOGGRID_INPUT_DIR");
+    m_input_dir = envInput ? envInput : "/app/data";
+
+    const char* envOutput = std::getenv("LOGGRID_OUTPUT_DIR");
+    m_base_dir = envOutput ? envOutput : "/data/loggrid";
 }
 
 uint64_t MasterServer::StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) {
-    if (!std::filesystem::exists(filepath))
-        throw std::runtime_error("[MASTER] File not found: " + filepath);
-    
-    uint64_t searchId = RegisterNewSession(config);
-    
-    auto baseTask = CreateChunkTask(filepath, keyword, searchId, config);
+    std::error_code ec;
 
-    // Create tasks
-    EnqueueFileChunks(filepath, baseTask);
+    // Real location of the input root, with every symlink resolved
+    std::filesystem::path baseCanon = std::filesystem::canonical(m_input_dir, ec);
+    if (ec)
+        throw std::runtime_error("[MASTER] Input directory unavailable: " + m_input_dir);
 
+    // Real location of the target; also fails if the path does not exist
+    std::filesystem::path targetCanon = std::filesystem::canonical(baseCanon / MakeRelative(filepath), ec);
+    if (ec)
+        throw std::runtime_error("[MASTER] Path not found: " + filepath);
+
+    // Trailing separator rejects siblings such as /app/data-private
+    std::string baseStr = baseCanon.string();
+    if (!baseStr.ends_with('/')) baseStr += '/';
+
+    if (targetCanon != baseCanon && !targetCanon.string().starts_with(baseStr)) {
+        std::cout << "[MASTER] Security Alert: Path Traversal attempt blocked! Path: " << filepath << "\n";
+        throw std::runtime_error("[MASTER] Path not found: " + filepath);
+    }
+
+    uint64_t searchId = AllocateSearchId();
+    SearchSession session = BuildSession(searchId, config);
+
+    // Helper vector for collecting chunks from all files before enqueuing them on m_pendingTasks
+    std::vector<LogSystem::TaskPayload> newTasks;
+
+    if (std::filesystem::is_directory(targetCanon)) {
+        ScanDirectoryRecursively(targetCanon, keyword, searchId, config, newTasks, session.scan_errors);
+    }
+    else if (std::filesystem::is_regular_file(targetCanon)) {
+        if(!ProcessSingleFile(targetCanon, keyword, searchId, config, newTasks))
+            throw std::runtime_error("[MASTER] Error occurred while reading a file: " + filepath);
+    }
+    else {
+        throw std::runtime_error("[MASTER] Unsupported path type: " + filepath);
+    }
+
+    // Nothing could be searched and something failed
+    if (newTasks.empty() && session.scan_errors > 0)
+        throw std::runtime_error("[MASTER] Could not scan path: " + filepath);
+    
+    AddPendingTasks(std::move(session), newTasks);
+
+    // Wake up idle workers to process tasks
     AssignIdleWorkers();
 
     return searchId;
+}
+
+void MasterServer::ScanDirectoryRecursively(const std::filesystem::path& dir, const std::string& keyword, uint64_t searchId, const SearchConfig& config, std::vector<LogSystem::TaskPayload>& outTasks, uint64_t& scanErrors) {
+    std::error_code ec;
+    auto it = std::filesystem::directory_iterator(dir, ec);
+
+    if (ec) {
+        std::cout << "[MASTER] Scan error: cannot open directory " << dir.string() << ": " << ec.message() << "\n";
+        ++scanErrors;
+        return;
+    }
+
+    for (auto end = std::filesystem::directory_iterator(); it != end; it.increment(ec)) {
+        
+        auto& entry = *it;
+        
+        if (entry.is_symlink(ec) || ec) {
+            if (ec) {
+                std::cout << "[MASTER] Scan error: cannot examine " << entry.path().string() << ": " << ec.message() << "\n";
+                ++scanErrors;
+            }
+            continue;
+        }
+        
+        if (entry.is_directory(ec)) {
+            ScanDirectoryRecursively(entry.path(), keyword, searchId, config, outTasks, scanErrors);
+        }
+        else if (entry.is_regular_file(ec)) {
+            if (!ProcessSingleFile(entry.path(), keyword, searchId, config, outTasks))
+                ++scanErrors;
+        }
+        else if (ec) {
+            std::cout << "[MASTER] Scan error: cannot examine " << entry.path().string() << ": " << ec.message() << "\n";
+            ++scanErrors;
+        }
+    }
+
+    // A failed increment makes the iterator equal to end, so the rest of this directory is lost
+    if (ec) {
+        std::cout << "[MASTER] Scan error: listing of " << dir.string() << " stopped early: " << ec.message() << "\n";
+        ++scanErrors;
+    }
+}
+
+bool MasterServer::ProcessSingleFile(const std::filesystem::path& targetPath, const std::string& keyword, uint64_t searchId, const SearchConfig& config, std::vector<LogSystem::TaskPayload>& outTasks) {
+    std::error_code ec;
+    auto sz = std::filesystem::file_size(targetPath, ec);
+    
+    std::string filePathStr = targetPath.string();
+
+    if (ec) {
+        std::cout << "[MASTER] Error occurred while reading a file: " << filePathStr << "\n";
+        return false;
+    }
+
+    // Empty file is valid
+    if (sz == 0) return true;
+    
+    if (filePathStr.length() >= sizeof(LogSystem::TaskPayload::filename)) {
+        std::cout << "[MASTER] Warning: Path too long, skipping: " << filePathStr << "\n";
+        return false;
+    } else {
+        auto baseTask = CreateChunkTask(filePathStr, keyword, searchId, config);
+        EnqueueFileChunks(targetPath, sz, baseTask, outTasks);
+        return true;
+    }
 }
 
 void MasterServer::AssignIdleWorkers() {
@@ -51,8 +155,14 @@ void MasterServer::AssignIdleWorkers() {
     
             workerToWakeUp = m_idleWorkers.front();
             m_idleWorkers.pop();
-            m_idleWorkersIds.erase(workerToWakeUp->GetID());
 
+            auto itSlots = m_workersFreeSlots.find(workerToWakeUp->GetID());
+            
+            // Skip deleted or disconnected workers
+            if (itSlots == m_workersFreeSlots.end())
+                continue;
+
+            m_idleWorkersIds.erase(workerToWakeUp->GetID());
             threadsCount = m_workersFreeSlots[workerToWakeUp->GetID()];
         }
 
@@ -63,23 +173,30 @@ void MasterServer::AssignIdleWorkers() {
     }
 }
 
-void MasterServer::EnqueueFileChunks(const std::filesystem::path& filepath, LogSystem::TaskPayload baseTask) {
-    uint64_t fileSize = std::filesystem::file_size(filepath);
-    uint64_t currentByte = 0;
-            
+void MasterServer::AddPendingTasks(SearchSession&& session, const std::vector<LogSystem::TaskPayload>& newTasks) {
     std::lock_guard<std::mutex> lock(m_stateMutex);
+
+    session.chunks_total = newTasks.size();
+    m_sessions[session.search_id] = std::move(session);
+    m_pendingTasks.insert(m_pendingTasks.end(), newTasks.begin(), newTasks.end());
+}
+
+void MasterServer::EnqueueFileChunks(const std::filesystem::path& filepath, const uint64_t fileSize, LogSystem::TaskPayload baseTask, std::vector<LogSystem::TaskPayload>& outTasks) {
+    uint64_t currentByte = 0;
+
     while (currentByte < fileSize) {
         baseTask.start_offset = currentByte;
         baseTask.end_offset = std::min(currentByte + CHUNK_SIZE, fileSize);
-        
-        m_pendingTasks.push_back(baseTask);
-        m_sessions[baseTask.search_id].chunks_total++;
-        
+        outTasks.push_back(baseTask);
         currentByte += CHUNK_SIZE;
     }
 }
 
 LogSystem::TaskPayload MasterServer::CreateChunkTask(const std::string& filepath, const std::string& keyword, uint64_t searchId, const SearchConfig& config) {
+    if (filepath.length() >= sizeof(LogSystem::TaskPayload::filename)) {
+        throw std::runtime_error("[MASTER] Path exceeds maximum allowed length: " + filepath);
+    }
+    
     LogSystem::TaskPayload task;
     task.search_id = searchId;
     
@@ -95,24 +212,18 @@ LogSystem::TaskPayload MasterServer::CreateChunkTask(const std::string& filepath
     return task;
 }
 
-uint64_t MasterServer::RegisterNewSession(const SearchConfig& config) {
-    uint64_t searchId;
-    {
-        std::lock_guard<std::mutex> lock(m_stateMutex);
-        searchId = m_nextSearchId++;
-    }
-    
+uint64_t MasterServer::AllocateSearchId() {
+    std::lock_guard<std::mutex> lock(m_stateMutex);
+    return m_nextSearchId++;
+}
+
+SearchSession MasterServer::BuildSession(const uint64_t searchId, const SearchConfig& config) {
     SearchSession session;
     session.search_id = searchId;
     session.max_results = config.max_results;
     session.path = CreateSessionFilePath(config.output_dir, searchId);
     
-    {
-        std::lock_guard<std::mutex> lock(m_stateMutex);
-        m_sessions[searchId] = std::move(session);
-    }
-
-    return searchId;
+    return session;
 }
 
 std::optional<SearchStatus> MasterServer::GetStatus(const uint64_t search_id) {
@@ -131,6 +242,7 @@ std::optional<SearchStatus> MasterServer::GetStatus(const uint64_t search_id) {
         session.chunks_done == session.chunks_total ? SearchState::Done : SearchState::Running,
         session.line_count,
         session.total_matches,
+        session.scan_errors,
         session.chunks_done,
         session.chunks_total
     };
@@ -147,6 +259,10 @@ void MasterServer::OnClientDisconnect(std::shared_ptr<olc::net::connection<LogSy
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
         
+        // Erase disconnected client
+        m_workersFreeSlots.erase(clientID);
+        m_idleWorkersIds.erase(clientID);
+        
         // Adding back task from disconnected client
         auto it = m_inFlightTasks.find(clientID);
         
@@ -155,7 +271,7 @@ void MasterServer::OnClientDisconnect(std::shared_ptr<olc::net::connection<LogSy
                 m_pendingTasks.push_front(task.second);
             }
             
-            // Erasing old client because new one will be added
+            // Erasing old client because new one will be woken up
             m_inFlightTasks.erase(it);
             std::cout << "[MASTER] Fault Tolerance triggered. Reclaimed task from lost Worker ID: " << clientID << "\n";
         }
@@ -167,6 +283,9 @@ void MasterServer::OnClientDisconnect(std::shared_ptr<olc::net::connection<LogSy
 bool MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client) {
     std::lock_guard<std::mutex> lock(m_stateMutex);
 
+    if (!m_workersFreeSlots.count(client->GetID()))
+        return false;
+    
     auto idleWorkerIds_it = m_idleWorkersIds.find(client->GetID());
     
     if (!m_pendingTasks.empty()) {
@@ -210,86 +329,105 @@ bool MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSyst
 void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client, 
     olc::net::message<LogSystem::LogSearchMsg>& msg) {
     
-    switch (msg.header.id) {
-        case LogSystem::LogSearchMsg::Worker_Hello: {
-            std::cout << "[MASTER] Hello message recived from Worker: " << client->GetID() << ". Asigning task\n";
+    try {
+        switch (msg.header.id) {
+            case LogSystem::LogSearchMsg::Worker_Hello: {
+                std::cout << "[MASTER] Hello message recived from Worker: " << client->GetID() << ". Asigning task\n";
 
-            // Available threads for worker
-            uint64_t threadsCount;
-            
-            LogSystem::HelloMessage result;
-            msg >> result;
-            threadsCount = result.threads_available;
+                // Available threads for worker
+                uint64_t threadsCount;
+                
+                LogSystem::HelloMessage result;
+                msg >> result;
+                threadsCount = result.threads_available;
 
-            m_workersFreeSlots[client->GetID()] = threadsCount;
-
-            for (uint64_t i = 0; i < threadsCount; ++i) {
-                // If threads > tasks available
-                if (!DispatchNextTask(client)) {
-                    break;
+                {
+                    std::lock_guard<std::mutex> lock(m_stateMutex);
+                    m_workersFreeSlots[client->GetID()] = threadsCount;
                 }
+
+                for (uint64_t i = 0; i < threadsCount; ++i) {
+                    // If threads > tasks available
+                    if (!DispatchNextTask(client)) {
+                        break;
+                    }
+                }
+
+                break;
             }
-
-            break;
-        }
-        case LogSystem::LogSearchMsg::Worker_TaskDone: {
-            std::cout << "[MASTER] Worker: " << client->GetID() << " finished asigned task\n";
-
-            uint64_t searchId = 0;
-            bool searchComplete = false;
-            
-            try {
-                uint64_t taskId = AggregateTaskResult(msg);
+            case LogSystem::LogSearchMsg::Worker_TaskDone: {
+                std::cout << "[MASTER] Worker: " << client->GetID() << " finished asigned task\n";
+                
+                uint64_t taskId = 0;
+                msg >> taskId;
+                
+                uint64_t authoritativeSearchId = 0;
+                bool taskExists = false;
                 
                 {
                     std::lock_guard<std::mutex> lock(m_stateMutex);
-
-                    // New worker thread is free now
-                    m_workersFreeSlots[client->GetID()]++;
-                    
                     auto it = m_inFlightTasks.find(client->GetID());
-                    if (it != m_inFlightTasks.end()) {
-                        // Inner map contains all tasks assigned to a single worker
-                        auto& innerMap = it->second;
-
-                        searchId = innerMap[taskId].search_id;
-                        innerMap.erase(taskId);
+                    if (it != m_inFlightTasks.end() && it->second.count(taskId)) {
+                        authoritativeSearchId = it->second[taskId].search_id;
+                        taskExists = true;
                         
-                        if (innerMap.empty())
-                            m_inFlightTasks.erase(it);
+                        it->second.erase(taskId);
+                        if (it->second.empty())
+                        m_inFlightTasks.erase(it);
 
-                        auto& session = m_sessions[searchId];
+                        m_workersFreeSlots[client->GetID()]++;
+                    }
+                }
+                
+                if (!taskExists) {
+                    std::cout << "[MASTER] Received unknown taskId from Worker.\n";
+                    break;
+                }
+                
+                // Dispatch next task before I/O file writing is triggered
+                DispatchNextTask(client);
+                
+                try {
+                    AggregateTaskResult(msg, authoritativeSearchId);
+                }
+                catch(const std::exception& e) {
+                    std::cout << "[MASTER] Aggregation error: " << e.what() << "\n";
+                }
+                
+                // Always clear resources
+                bool searchComplete = false;
+                {
+                    std::lock_guard<std::mutex> lock(m_stateMutex);
+                    if (m_sessions.count(authoritativeSearchId)) {
+                        auto& session = m_sessions[authoritativeSearchId];
                         session.chunks_done++;
-                    
+
                         if (session.chunks_done == session.chunks_total)
                             searchComplete = true;
                     }
                 }
 
-                DispatchNextTask(client);
 
                 if (searchComplete) {
-                    std::cout << "[MASTER] Search ID: " << searchId << " complete. Results delivered.\n";
+                    std::cout << "[MASTER] Search ID: " << authoritativeSearchId << " complete. Results delivered.\n";
                 }
+
+                break;
             }
-            catch (const std::runtime_error& e) {
-                std::cout << e.what() << "\n";
-            }
-            
-            break;
+            default:
+                std::cout << "[MASTER] Undefined message type received from Worker: " << client->GetID() << "\n";
+                break;
         }
-        default:
-            std::cout << "[MASTER] Undefined message type received from Worker: " << client->GetID() << "\n";
-            break;
+    }
+    catch (const std::exception& e) {
+        std::cout << "[MASTER] Malformed message from Worker " << client->GetID()
+            << ": " << e.what() << "\n";
     }
 }
 
-uint64_t MasterServer::AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg) {
-    uint64_t taskId;
-    // back message data is taskId
-    msg >> taskId;
-    
+void MasterServer::AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg, const uint64_t authoritativeSearchId) {
     LogSystem::ChunkResult batch = DeserializeBatch(msg);
+    batch.search_id = authoritativeSearchId; // Override search_id received from worker
 
     size_t linesToWrite = 0;
     {
@@ -318,9 +456,6 @@ uint64_t MasterServer::AggregateTaskResult(olc::net::message<LogSystem::LogSearc
         }
         WriteResults(batch.lines, batch.search_id);
     }
-
-    
-    return taskId;
 }
 
 LogSystem::ChunkResult MasterServer::DeserializeBatch(olc::net::message<LogSystem::LogSearchMsg>& msg) {

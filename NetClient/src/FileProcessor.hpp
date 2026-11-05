@@ -1,6 +1,7 @@
 #ifndef FILE_PROCESSOR_HPP
 #define FILE_PROCESSOR_HPP
 
+#include <format>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -55,7 +56,7 @@ public:
             return {};
         }
         
-        while (currentPos <= endByte && std::getline(file, line)) {
+        while (currentPos < endByte && std::getline(file, line)) {
             // For Windows format (CRLF) delete '\r'
             if (!line.empty() && line.back() == '\r')
                 line.pop_back();
@@ -63,10 +64,9 @@ public:
             // Line Found - update batch
             if (std::regex_search(line, pattern)) {
                 if (batch.lines_found < maxLineCount) {
-                    batch.lines.push_back(line);
+                    batch.lines.emplace_back(std::format("{}: {}", task.filename, line));
                     batch.lines_found++;
                 }
-                
                 batch.total_matches++;
             }
 

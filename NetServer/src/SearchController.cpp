@@ -57,7 +57,8 @@ void SearchController::HandleGetSearch(const httplib::Request& req, httplib::Res
                 { "chunksDone", session.chunks_done },
                 { "chunksTotal", session.chunks_total },
                 { "linesCount", session.lines_found },
-                { "totalMatches", session.total_matches }
+                { "totalMatches", session.total_matches },
+                { "scanErrors", session.scan_errors }
             };
 
             res.set_content(response.dump(), "application/json");
