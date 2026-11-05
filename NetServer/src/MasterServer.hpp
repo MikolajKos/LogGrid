@@ -247,7 +247,7 @@ private:
     /**
      * @brief Recursively scans a directory using standard iteration to ensure fault tolerance against missing files.
      * 
-     * Iterates horizontally (DFS) and explicitly ignores missing subdirectories (e.g. from log rotation) 
+     * Explicitly ignores missing subdirectories (e.g. from log rotation) 
      * without terminating the global search.
      * 
      * @param dir Directory to scan.

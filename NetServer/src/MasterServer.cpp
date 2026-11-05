@@ -26,33 +26,38 @@ MasterServer::MasterServer(uint16_t port)
 }
 
 uint64_t MasterServer::StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) {
-    std::filesystem::path basePath = std::filesystem::path(m_input_dir).lexically_normal();
-    std::filesystem::path targetPath = (basePath / MakeRelative(filepath)).lexically_normal();
+    std::error_code ec;
 
-    std::string baseStr = basePath.string();
+    // Real location of the input root, with every symlink resolved
+    std::filesystem::path baseCanon = std::filesystem::canonical(m_input_dir, ec);
+    if (ec)
+        throw std::runtime_error("[MASTER] Input directory unavailable: " + m_input_dir);
+
+    // Real location of the target; also fails if the path does not exist
+    std::filesystem::path targetCanon = std::filesystem::canonical(baseCanon / MakeRelative(filepath), ec);
+    if (ec)
+        throw std::runtime_error("[MASTER] Path not found: " + filepath);
+
+    // Trailing separator rejects siblings such as /app/data-private
+    std::string baseStr = baseCanon.string();
     if (!baseStr.ends_with('/')) baseStr += '/';
 
-    if (targetPath.string() != basePath.string() && !targetPath.string().starts_with(baseStr))
-        throw std::runtime_error("[MASTER] Security Alert: Path Traversal attempt blocked!");
+    if (targetCanon != baseCanon && !targetCanon.string().starts_with(baseStr)) {
+        std::cout << "[MASTER] Security Alert: Path Traversal attempt blocked! Path: " << filepath << "\n";
+        throw std::runtime_error("[MASTER] Path not found: " + filepath);
+    }
 
-    std::error_code ec;
-    if (std::filesystem::is_symlink(targetPath, ec))
-        throw std::runtime_error("[MASTER] Security Alert: Symlinks are not allowed: " + targetPath.string());
-        
-    if (!std::filesystem::exists(targetPath))
-        throw std::runtime_error("[MASTER] Path not found: " + targetPath.string());
-    
     uint64_t searchId = AllocateSearchId();
     SearchSession session = BuildSession(searchId, config);
 
     // Helper vector for collecting chunks from all files before enqueuing them on m_pendingTasks
     std::vector<LogSystem::TaskPayload> newTasks;
     
-    if (std::filesystem::is_directory(targetPath.string())) {
-        ScanDirectoryRecursively(targetPath, keyword, searchId, config, newTasks);
+    if (std::filesystem::is_directory(targetCanon)) {
+        ScanDirectoryRecursively(targetCanon, keyword, searchId, config, newTasks);
     }
-    else if (std::filesystem::is_regular_file(targetPath)) {
-        ProcessSingleFile(targetPath, keyword, searchId, config, newTasks);
+    else if (std::filesystem::is_regular_file(targetCanon)) {
+        ProcessSingleFile(targetCanon, keyword, searchId, config, newTasks);
     }
     else {
         throw std::runtime_error("[MASTER] Unsupported path type: " + filepath);
@@ -78,10 +83,13 @@ void MasterServer::ScanDirectoryRecursively(const std::filesystem::path& dir, co
         if (ec) break; // Error inside catalog breaks only current catalog
 
         auto& entry = *it;
+
+        if (entry.is_symlink(ec) || ec) continue;
+
         if (entry.is_directory(ec)) {
             ScanDirectoryRecursively(entry.path(), keyword, searchId, config, outTasks);
         }
-        else if (entry.is_regular_file(ec) && !entry.is_symlink(ec)) {
+        else if (entry.is_regular_file(ec)) {
             ProcessSingleFile(entry.path(), keyword, searchId, config, outTasks);
         }
     }
