@@ -56,7 +56,7 @@ public:
             return {};
         }
         
-        while (currentPos <= endByte && std::getline(file, line)) {
+        while (currentPos < endByte && std::getline(file, line)) {
             // For Windows format (CRLF) delete '\r'
             if (!line.empty() && line.back() == '\r')
                 line.pop_back();
