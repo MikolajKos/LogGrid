@@ -108,7 +108,9 @@ protected:
      * - Worker_Hello: Registers Worker capacity and saturates all available threads with tasks.
      * - Worker_TaskDone: Aggregates result metrics, writes batch lines to disk, frees a worker slot,
      *                    checks for job completion, and immediately dispatches the next task.
-     * 
+     *
+     * A malformed message is logged and discarded, so it cannot terminate the Master.
+     *
      * @param client Shared pointer to the Worker that sent the message.
      * @param msg The binary message payload.
      */

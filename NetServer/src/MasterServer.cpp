@@ -329,93 +329,99 @@ bool MasterServer::DispatchNextTask(std::shared_ptr<olc::net::connection<LogSyst
 void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client, 
     olc::net::message<LogSystem::LogSearchMsg>& msg) {
     
-    switch (msg.header.id) {
-        case LogSystem::LogSearchMsg::Worker_Hello: {
-            std::cout << "[MASTER] Hello message recived from Worker: " << client->GetID() << ". Asigning task\n";
+    try {
+        switch (msg.header.id) {
+            case LogSystem::LogSearchMsg::Worker_Hello: {
+                std::cout << "[MASTER] Hello message recived from Worker: " << client->GetID() << ". Asigning task\n";
 
-            // Available threads for worker
-            uint64_t threadsCount;
-            
-            LogSystem::HelloMessage result;
-            msg >> result;
-            threadsCount = result.threads_available;
+                // Available threads for worker
+                uint64_t threadsCount;
+                
+                LogSystem::HelloMessage result;
+                msg >> result;
+                threadsCount = result.threads_available;
 
-            {
-                std::lock_guard<std::mutex> lock(m_stateMutex);
-                m_workersFreeSlots[client->GetID()] = threadsCount;
-            }
-
-            for (uint64_t i = 0; i < threadsCount; ++i) {
-                // If threads > tasks available
-                if (!DispatchNextTask(client)) {
-                    break;
+                {
+                    std::lock_guard<std::mutex> lock(m_stateMutex);
+                    m_workersFreeSlots[client->GetID()] = threadsCount;
                 }
-            }
 
-            break;
-        }
-        case LogSystem::LogSearchMsg::Worker_TaskDone: {
-            std::cout << "[MASTER] Worker: " << client->GetID() << " finished asigned task\n";
-            
-            uint64_t taskId = 0;
-            msg >> taskId;
-            
-            uint64_t authoritativeSearchId = 0;
-            bool taskExists = false;
-            
-            {
-                std::lock_guard<std::mutex> lock(m_stateMutex);
-                auto it = m_inFlightTasks.find(client->GetID());
-                if (it != m_inFlightTasks.end() && it->second.count(taskId)) {
-                    authoritativeSearchId = it->second[taskId].search_id;
-                    taskExists = true;
-                    
-                    it->second.erase(taskId);
-                    if (it->second.empty())
-                    m_inFlightTasks.erase(it);
-
-                    m_workersFreeSlots[client->GetID()]++;
+                for (uint64_t i = 0; i < threadsCount; ++i) {
+                    // If threads > tasks available
+                    if (!DispatchNextTask(client)) {
+                        break;
+                    }
                 }
-            }
-            
-            if (!taskExists) {
-                std::cout << "[MASTER] Received unknown taskId from Worker.\n";
+
                 break;
             }
-            
-            // Dispatch next task before I/O file writing is triggered
-            DispatchNextTask(client);
-            
-            try {
-                AggregateTaskResult(msg, authoritativeSearchId);
-            }
-            catch(const std::exception& e) {
-                std::cout << "[MASTER] Aggregation error: " << e.what() << "\n";
-            }
-            
-            // Always clear resources
-            bool searchComplete = false;
-            {
-                std::lock_guard<std::mutex> lock(m_stateMutex);
-                if (m_sessions.count(authoritativeSearchId)) {
-                    auto& session = m_sessions[authoritativeSearchId];
-                    session.chunks_done++;
+            case LogSystem::LogSearchMsg::Worker_TaskDone: {
+                std::cout << "[MASTER] Worker: " << client->GetID() << " finished asigned task\n";
+                
+                uint64_t taskId = 0;
+                msg >> taskId;
+                
+                uint64_t authoritativeSearchId = 0;
+                bool taskExists = false;
+                
+                {
+                    std::lock_guard<std::mutex> lock(m_stateMutex);
+                    auto it = m_inFlightTasks.find(client->GetID());
+                    if (it != m_inFlightTasks.end() && it->second.count(taskId)) {
+                        authoritativeSearchId = it->second[taskId].search_id;
+                        taskExists = true;
+                        
+                        it->second.erase(taskId);
+                        if (it->second.empty())
+                        m_inFlightTasks.erase(it);
 
-                    if (session.chunks_done == session.chunks_total)
-                        searchComplete = true;
+                        m_workersFreeSlots[client->GetID()]++;
+                    }
                 }
+                
+                if (!taskExists) {
+                    std::cout << "[MASTER] Received unknown taskId from Worker.\n";
+                    break;
+                }
+                
+                // Dispatch next task before I/O file writing is triggered
+                DispatchNextTask(client);
+                
+                try {
+                    AggregateTaskResult(msg, authoritativeSearchId);
+                }
+                catch(const std::exception& e) {
+                    std::cout << "[MASTER] Aggregation error: " << e.what() << "\n";
+                }
+                
+                // Always clear resources
+                bool searchComplete = false;
+                {
+                    std::lock_guard<std::mutex> lock(m_stateMutex);
+                    if (m_sessions.count(authoritativeSearchId)) {
+                        auto& session = m_sessions[authoritativeSearchId];
+                        session.chunks_done++;
+
+                        if (session.chunks_done == session.chunks_total)
+                            searchComplete = true;
+                    }
+                }
+
+
+                if (searchComplete) {
+                    std::cout << "[MASTER] Search ID: " << authoritativeSearchId << " complete. Results delivered.\n";
+                }
+
+                break;
             }
-
-
-            if (searchComplete) {
-                std::cout << "[MASTER] Search ID: " << authoritativeSearchId << " complete. Results delivered.\n";
-            }
-
-            break;
+            default:
+                std::cout << "[MASTER] Undefined message type received from Worker: " << client->GetID() << "\n";
+                break;
         }
-        default:
-            std::cout << "[MASTER] Undefined message type received from Worker: " << client->GetID() << "\n";
-            break;
+    }
+    catch (const std::exception& e) {
+        std::cout << "[MASTER] Malformed message from Worker " << client->GetID()
+            << ": " << e.what() << "\n";
     }
 }
 
