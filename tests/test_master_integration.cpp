@@ -73,7 +73,7 @@ protected:
 
 TEST_F(MasterIntegrationTest, CompletesSearchWithOneWorker) {
     FakeWorker worker;
-    ASSERT_TRUE(worker.Connect("127.0.0.1", 60610));
+    ASSERT_TRUE(worker.Connect("127.0.0.1", port));
     // Master will register this worker
     worker.SendHello(1);
 
@@ -85,5 +85,39 @@ TEST_F(MasterIntegrationTest, CompletesSearchWithOneWorker) {
 
     worker.SendTaskDone(*receivedOpt);
     
+    ASSERT_TRUE(WaitUntilDone(searchId, std::chrono::milliseconds(5000)));
+}
+
+TEST_F(MasterIntegrationTest, ReassignsTaskWhenWorkerCrashes) {
+    FakeWorker workerA;
+    FakeWorker workerB;
+
+    ASSERT_TRUE(workerA.Connect("127.0.0.1", port));
+    ASSERT_TRUE(workerB.Connect("127.0.0.1", port));
+
+    workerA.SendHello(1);
+    
+    uint64_t searchId = m_master->StartSearch("a.log", "ERROR", {});
+    
+    // Save offset and filename from task for worker B validation
+    auto aTaskOpt = workerA.ReceiveTask(std::chrono::milliseconds(2000));
+    ASSERT_TRUE(aTaskOpt);
+    auto aTask = *aTaskOpt;
+    
+    // Task was assigned to worker A so B is waiting as idle worker
+    workerB.SendHello(1);
+
+    workerA.Crash();
+
+    auto bTaskOpt = workerB.ReceiveTask(std::chrono::milliseconds(2000));
+    ASSERT_TRUE(bTaskOpt);
+    auto bTask = *bTaskOpt;
+
+    EXPECT_EQ(bTask.end_offset, aTask.end_offset);
+    EXPECT_EQ(bTask.start_offset, aTask.start_offset);
+    ASSERT_STREQ(bTask.filename, aTask.filename);
+
+    workerB.SendTaskDone(bTask);
+
     ASSERT_TRUE(WaitUntilDone(searchId, std::chrono::milliseconds(5000)));
 }
