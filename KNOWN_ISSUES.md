@@ -22,3 +22,7 @@ Stan na 8 listopada 2026. Uwagi z przeglądów PR #45 i z pracy nad testami mast
 - [ ] `outputDir` sprawdzany jest leksykalnie bez końcowego separatora, więc ścieżka sąsiednia wychodzi poza `LOGGRID_OUTPUT_DIR`.
 - [ ] Słowo kluczowe obcinane po cichu do 63 znaków, a regex nie jest sprawdzany na masterze.
 - [ ] `filesystem_error` (np. pełny dysk wyjściowy) wraca do klienta jako 404 zamiast 500.
+
+## Poza zakresem stycznia
+
+- [ ] **Brak szyfrowania i uwierzytelniania.** Ruch TCP między masterem a workerami oraz API HTTP nie są szyfrowane. `OnClientConnect` przyjmuje każde połączenie, a API nie sprawdza, kto wysyła żądanie. Na czas pomiarów porty trzeba ograniczyć do sieci prywatnej, np. przez security groups na AWS. Kierunek docelowy: `asio::ssl` z OpenSSL i wzajemne uwierzytelnianie certyfikatami dla TCP, a dla HTTP TLS i token. Szyfrowanie zmienia narzut, więc porównanie z Flinkiem musi mieć tę samą konfigurację po obu stronach.

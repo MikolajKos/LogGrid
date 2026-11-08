@@ -48,8 +48,42 @@ protected:
     }
 
 protected:
+    bool WaitUntilDone(uint64_t searchId, std::chrono::milliseconds timeout) {
+        auto deadline = std::chrono::steady_clock::now() + timeout;
+
+        while (std::chrono::steady_clock::now() < deadline) {
+            auto statusOpt = m_master->GetStatus(searchId);
+            
+            if (statusOpt && statusOpt->state == SearchState::Done) {
+                return true;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+
+        return false;
+    }
+
+protected:
     std::unique_ptr<MasterServer> m_master;
     std::filesystem::path m_path;
     static constexpr uint16_t port{60610};
     std::jthread m_thread;      
 };
+
+TEST_F(MasterIntegrationTest, CompletesSearchWithOneWorker) {
+    FakeWorker worker;
+    ASSERT_TRUE(worker.Connect("127.0.0.1", 60610));
+    // Master will register this worker
+    worker.SendHello(1);
+
+    // Sends task
+    uint64_t searchId = m_master->StartSearch("a.log", "ERROR", {});
+
+    auto receivedOpt = worker.ReceiveTask(std::chrono::milliseconds(2000));
+    ASSERT_TRUE(receivedOpt);
+
+    worker.SendTaskDone(*receivedOpt);
+    
+    ASSERT_TRUE(WaitUntilDone(searchId, std::chrono::milliseconds(5000)));
+}
