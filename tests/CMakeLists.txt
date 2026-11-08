@@ -25,7 +25,10 @@ gtest_discover_tests(LogGridTests)
 # Integration tests executable
 add_executable(LogGridIntegrationTests
     test_worker_integration.cpp
+    test_master_integration.cpp
+
     ${CMAKE_SOURCE_DIR}/NetClient/src/WorkerClient.cpp
+    ${CMAKE_SOURCE_DIR}/NetServer/src/MasterServer.cpp
 )
 
 target_link_libraries(LogGridIntegrationTests
@@ -37,6 +40,7 @@ target_link_libraries(LogGridIntegrationTests
 
 target_include_directories(LogGridIntegrationTests
     PRIVATE
+    ${CMAKE_SOURCE_DIR}/NetServer/src
     ${CMAKE_SOURCE_DIR}/NetClient/src
     ${CMAKE_SOURCE_DIR}/tests
 )
