@@ -50,10 +50,12 @@ CMD ["./NetClientApp"]
 FROM ubuntu:26.04 AS test_image
 
 WORKDIR /usr/src/app
-# copy only test binary
+# copy only test binaries
 COPY --from=builder /usr/src/app/build/tests/LogGridTests .
+COPY --from=builder /usr/src/app/build/tests/LogGridIntegrationTests .
 
-CMD ["./LogGridTests"]
+# run both suites; the container fails if either one fails
+CMD ["sh", "-c", "./LogGridTests && ./LogGridIntegrationTests"]
 
 # ====================================================
 # COVERAGE IMAGE
