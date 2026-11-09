@@ -298,3 +298,21 @@ TEST_F(MasterIntegrationTest, IgnoresDuplicateTaskDone) {
     EXPECT_EQ(status->state, SearchState::Done);
     EXPECT_EQ(status->chunks_done, 1);
 }
+
+// Regression test for server member destruction order: the io_context must
+// outlive connections. Fails only under ASan (LOGGRID_SANITIZER=address).
+TEST_F(MasterIntegrationTest, ShutsDownWithConnectedWorker) {
+    FakeWorker worker;
+    ASSERT_TRUE(worker.Connect("127.0.0.1", port));
+    worker.SendHello(1);
+
+    m_master->StartSearch("a.log", "ERROR", {});
+
+    auto receivedOpt = worker.ReceiveTask(std::chrono::milliseconds(2000));
+    ASSERT_TRUE(receivedOpt);
+
+    m_thread.request_stop();
+    if (m_thread.joinable()) m_thread.join();
+    m_master->Stop();
+    m_master.reset();
+}
