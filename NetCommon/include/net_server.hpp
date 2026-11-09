@@ -131,6 +131,12 @@ namespace olc
 
                     if (msg.disconnected) {
                         OnClientDisconnect(msg.remote);
+                        asio::post(m_asioContext, [this, client = msg.remote]() {
+                            m_deqConnections.erase(
+                                std::remove(m_deqConnections.begin(), m_deqConnections.end(), client),
+                                m_deqConnections.end()
+                            );
+                        });
                     }
                     else {
                         // Pass to message handler

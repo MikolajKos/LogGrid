@@ -45,7 +45,7 @@ namespace olc
             void ConnectToServer(const asio::ip::tcp::resolver::results_type& endpoints,
                 std::function<void(bool)> funcHandler) {
                 asio::async_connect(m_socket, endpoints,
-                    [this, funcHandler](std::error_code ec, asio::ip::tcp::endpoint endpoint) {
+                    [this, self = this->shared_from_this(), funcHandler](std::error_code ec, asio::ip::tcp::endpoint endpoint) {
                         if (!ec) {
                             // Success
                             ReadHeader();
@@ -60,7 +60,7 @@ namespace olc
 
             void Disconnect() {
                 if (IsConnected())
-                    asio::post(m_asioContext, [this]() { m_socket.close(); });
+                    asio::post(m_asioContext, [this, self = this->shared_from_this()]() { m_socket.close(); });
             }
 
             bool IsConnected() const {
@@ -68,7 +68,7 @@ namespace olc
             }
 
             void Send(const message<T>& msg) {
-                asio::post(m_asioContext, [this, msg]() {
+                asio::post(m_asioContext, [this, self = this->shared_from_this(), msg]() {
                     bool bWrittingMessage = !m_qMessagesOut.empty();
 
                     m_qMessagesOut.push_back(msg);
@@ -85,7 +85,7 @@ namespace olc
         private:
             void ReadHeader() {
                     asio::async_read(m_socket, asio::buffer(&m_msgTemporaryIn.header, sizeof(message_header<T>)),
-                    [this](asio::error_code ec, size_t length) {
+                    [this, self = this->shared_from_this()](asio::error_code ec, size_t length) {
                         if (!ec) {
                             if (m_msgTemporaryIn.header.size > 0) {
                                 m_msgTemporaryIn.body.resize(m_msgTemporaryIn.header.size);
@@ -104,7 +104,7 @@ namespace olc
 
             void ReadBody() {
                 asio::async_read(m_socket, asio::buffer(m_msgTemporaryIn.body.data(), m_msgTemporaryIn.body.size()),
-                    [this](asio::error_code ec, size_t length) {
+                    [this, self = this->shared_from_this()](asio::error_code ec, size_t length) {
                         if (!ec) {
                             AddToIncomingMessageQueue();
                         }
@@ -117,7 +117,7 @@ namespace olc
 
             void WriteHeader() {
                 asio::async_write(m_socket, asio::buffer(&m_qMessagesOut.front().header, sizeof(message_header<T>)),
-                    [this](asio::error_code ec, size_t length) {
+                    [this, self = this->shared_from_this()](asio::error_code ec, size_t length) {
                         if (!ec) {
                             if (m_qMessagesOut.front().body.size() > 0) {
                                 WriteBody();
@@ -139,7 +139,7 @@ namespace olc
 
             void WriteBody() {
                 asio::async_write(m_socket, asio::buffer(m_qMessagesOut.front().body.data(), m_qMessagesOut.front().body.size()),
-                    [this](asio::error_code ec, size_t length) {
+                    [this, self = this->shared_from_this()](asio::error_code ec, size_t length) {
                         if (!ec) {
                             m_qMessagesOut.pop_front();
 
