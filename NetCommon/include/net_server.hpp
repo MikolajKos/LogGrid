@@ -163,12 +163,15 @@ namespace olc
             }
 
         protected:
+            // Must be declared before m_qMessagesIn and m_deqConnections: members are
+            // destroyed in reverse order, and a connection's socket uses the io_context
+            // in its destructor
+            asio::io_context m_asioContext;
+        
             // Thread safe queue for incoming message packets
             tsqueue<owned_message<T>> m_qMessagesIn;
 
             std::deque<std::shared_ptr<connection<T>>> m_deqConnections;
-            
-            asio::io_context m_asioContext;
 
             std::thread m_threadContext;
 
