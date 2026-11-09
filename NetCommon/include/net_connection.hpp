@@ -97,7 +97,7 @@ namespace olc
                         }
                         else {
                             std::cout << "[" << id << "] Read Header Fail.\n";
-                            m_socket.close();
+                            HandleDisconnect();
                         }
                     });
             }
@@ -110,7 +110,7 @@ namespace olc
                         }
                         else {
                             std::cout << "[" << id << "] Read Body Fail.\n";
-                            m_socket.close();
+                            HandleDisconnect();
                         }
                     });
             }
@@ -132,7 +132,7 @@ namespace olc
                         }
                         else {
                             std::cout << "[" << id << "] Write Header Fail.\n";
-                            m_socket.close();
+                            HandleDisconnect();
                         }
                     });
             }
@@ -149,6 +149,7 @@ namespace olc
                         }
                         else {
                             std::cout << "[" << id << "] Write Body Fail.\n";
+                            HandleDisconnect();
                         }
                     });
             }
@@ -165,6 +166,25 @@ namespace olc
                 }
 
                 ReadHeader();
+            }
+
+            /**
+             * @brief Closes the socket after a read or write error and reports the disconnect once.
+             *
+             * On the server side, a disconnect event is queued in m_qMessagesIn behind any
+             * messages already received from this connection, so the owner handles them first
+             * and then calls OnClientDisconnect from the same thread. Later errors on the same
+             * connection, e.g. a write failing after a read failure, are ignored.
+             */
+            void HandleDisconnect() {
+                if (m_isDisconnected) return;
+
+                m_isDisconnected = true;
+                m_socket.close();
+
+                if (m_nOwnerType == owner::server) {
+                    m_qMessagesIn.push_back({ this->shared_from_this(), {}, true });
+                }
             }
 
             protected:
@@ -189,6 +209,10 @@ namespace olc
 
             // OnMessage callback foothold
             std::function<void(message<T>&)> m_msgCallback;
+
+            // Set once the disconnect has been reported. A plain bool is enough because
+            // every handler of this connection runs on the single asio context thread.
+            bool m_isDisconnected = false;
         };
     }
 }

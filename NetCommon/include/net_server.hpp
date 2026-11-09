@@ -129,10 +129,14 @@ namespace olc
                     // Grab the front message
                     auto msg = m_qMessagesIn.pop_front();
 
-                    // Pass to message handler
-                    OnMessage(msg.remote, msg.msg);
-
-                    nMessageCount++;
+                    if (msg.disconnected) {
+                        OnClientDisconnect(msg.remote);
+                    }
+                    else {
+                        // Pass to message handler
+                        OnMessage(msg.remote, msg.msg);
+                        nMessageCount++;
+                    }
                 }
             }
             

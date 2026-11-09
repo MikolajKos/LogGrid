@@ -82,6 +82,8 @@ namespace olc
         struct owned_message {
             std::shared_ptr<connection<T>> remote = nullptr;
             message<T> msg;
+            // true for a disconnect event from `remote` rather than a received message
+            bool disconnected = false;
 
             friend std::ostream& operator << (std::ostream& os, const owned_message<T>& msg) {
                 os << msg.msg;
