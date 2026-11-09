@@ -1,6 +1,6 @@
 # LogGrid: założenia i plan na styczeń 2027
 
-Stan na 6 listopada 2026. Dokument łączy propozycje dr. Filipa Krużela z obecną architekturą. W sprawie pomiarów i modelu danych ma pierwszeństwo przed wcześniejszym `MVP_JANUARY_2027.md`.
+Stan na 9 listopada 2026. Dokument łączy propozycje dr. Filipa Krużela z obecną architekturą. W sprawie pomiarów i modelu danych ma pierwszeństwo przed wcześniejszym `MVP_JANUARY_2027.md`.
 
 ## Cel
 
@@ -41,9 +41,10 @@ odbiorca ← wyniki ← master ←───────────────�
 | Obszar | Stan |
 |---|---|
 | Wsadowy podział plików, komunikacja master-worker, wyszukiwanie katalogów | Działa, PR #45 scalony |
-| Testy integracyjne mastera | W trakcie, gałąź `test/master-integration` |
-| Odzyskiwanie po awarii | Logika istnieje, ale błąd odczytu tylko zamyka gniazdo i nie uruchamia `OnClientDisconnect` |
-| Czas życia połączeń | Handlery w `net_connection.hpp` przechwytują surowe `this` |
+| Testy integracyjne mastera | 8 scenariuszy, gałąź `test/master-integration`, uruchamiane w CI |
+| Odzyskiwanie po awarii | Rozłączenie workera wywołuje `OnClientDisconnect`, a zadania wracają do kolejki. Brak weryfikacji `kill -9` na klastrze |
+| Czas życia połączeń | Handlery trzymają `shared_from_this()`. Otwarte: kolejność niszczenia w `WorkerClient` (`KNOWN_ISSUES.md`) |
+| Sanitizery | Opcja `LOGGRID_SANITIZER`, ASan/UBSan i TSan czyste lokalnie i dodane do CI |
 | Rozmiar chunka | Stała w kodzie, obecnie 5 MB |
 | Host mastera | Stała w kodzie workera, `master-node` |
 | Metryki | Brak eksportu |
@@ -65,28 +66,29 @@ Na potrzeby testu końcowego przyjmujemy roboczo, że partia oznacza cały gotow
 
 ## Kroki realizacji
 
-### 1. Testy integracyjne mastera (w trakcie)
+### 1. Testy integracyjne mastera (zrobione)
 
 Uzupełnić `FakeWorker` o wysyłanie `TaskDone`, zamykanie połączenia oraz odbiór z limitem czasu. Blokujący odbiór zawiesiłby czerwony test, jeśli zadanie nie zostanie przekazane dalej.
 
 Scenariusze:
 
-- [ ] Worker po `Hello` dostaje tyle zadań, ile zgłosił wolnych wątków.
-- [ ] Sesja kończy się dopiero po `TaskDone` dla wszystkich chunków.
-- [ ] Po zerwaniu połączenia drugi worker dostaje dokładnie te same zakresy bajtów (czerwony test).
-- [ ] Sesja kończy się po awarii i przejęciu zadań, a liczniki nie są zawyżone.
-- [ ] Awaria jedynego workera nie blokuje mastera, a później podłączony worker przejmuje zadania.
-- [ ] Spóźniony lub nieznany `TaskDone` nie zmienia wyniku sesji.
+- [x] Worker po `Hello` dostaje tyle zadań, ile zgłosił wolnych wątków.
+- [x] Sesja kończy się dopiero po `TaskDone` dla wszystkich chunków.
+- [x] Po zerwaniu połączenia drugi worker dostaje dokładnie te same zakresy bajtów (czerwony test).
+- [x] Sesja kończy się po awarii i przejęciu zadań, a liczniki nie są zawyżone.
+- [x] Awaria jedynego workera nie blokuje mastera, a później podłączony worker przejmuje zadania.
+- [x] Spóźniony lub nieznany `TaskDone` nie zmienia wyniku sesji.
 
 **Gotowe, gdy:** test crasha powtarzalnie ujawnia obecny błąd, bez stałych opóźnień w teście i konfliktów portów.
 
-### 2. Naprawa wykrywania rozłączeń i odzyskiwania zadań
+### 2. Naprawa wykrywania rozłączeń i odzyskiwania zadań (w trakcie)
 
-- [ ] Ustalić właściciela połączenia i wątek obsługi rozłączenia.
-- [ ] Naprawić czas życia operacji asynchronicznych w `connection`.
-- [ ] Przekazywać błąd odczytu lub zapisu do logiki rozłączenia dokładnie raz.
-- [ ] Usuwać martwe połączenia i przywracać ich zadania.
-- [ ] Uruchamiać testy z ASan/UBSan i TSan.
+- [x] Ustalić właściciela połączenia i wątek obsługi rozłączenia.
+- [x] Naprawić czas życia operacji asynchronicznych w `connection`.
+- [x] Przekazywać błąd odczytu lub zapisu do logiki rozłączenia dokładnie raz.
+- [x] Usuwać martwe połączenia i przywracać ich zadania.
+- [x] Uruchamiać testy z ASan/UBSan i TSan.
+- [ ] Sprawdzić `kill -9` workera podczas pracy na klastrze z `docker compose`.
 
 **Gotowe, gdy:** `kill -9` workera podczas pracy nie zawiesza klastra, a sesja kończy się z pełnym wynikiem.
 

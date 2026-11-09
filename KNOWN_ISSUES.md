@@ -1,16 +1,18 @@
 # LogGrid: znane problemy
 
-Stan na 8 listopada 2026. Uwagi z przeglądów PR #45 i z pracy nad testami mastera. Przy realizacji odznaczaj punkty albo przenoś je do zgłoszeń na GitHubie.
+Stan na 9 listopada 2026. Uwagi z przeglądów PR #45 i z pracy nad testami mastera. Przy realizacji odznaczaj punkty albo przenoś je do zgłoszeń na GitHubie.
 
 ## Czas życia obiektów (krok 2 planu)
 
 - [ ] **Destruktor `server_interface` woła `Stop()` za późno.** `~server_interface()` wykonuje się po zniszczeniu części `MasterServer`, a wątek asio wciąż działa i może wywołać `OnClientConnect` lub `OnClientDisconnect` na częściowo zniszczonym obiekcie. Obejście: wywoływać `Stop()` przed zniszczeniem mastera, tak jak w `TearDown` testów. Docelowo: `MasterServer` sam zatrzymuje serwer w swoim destruktorze albo właściciel zawsze woła `Stop()`.
-- [ ] Handlery w `net_connection.hpp` przechwytują surowe `this`. Przed usuwaniem martwych połączeń trzeba przejść na `shared_from_this()`, a `client_interface` na `shared_ptr` zamiast `unique_ptr`.
-- [ ] `client_interface::Disconnect()` woła `release()` zamiast `reset()`, a zamknięcie gniazda przez `post` może się nie wykonać przed `stop()`.
+- [x] Handlery w `net_connection.hpp` przechwytują surowe `this`. Naprawione w `7601add`: każdy handler trzyma `self = shared_from_this()`, a `client_interface` używa `shared_ptr`. ASan wykrywał ten błąd jako use-after-free w `~connection()`.
+- [x] `client_interface::Disconnect()` woła `release()` zamiast `reset()`. Naprawione w `7601add`.
+- [ ] **`WorkerClient` niszczy pulę wątków przed zatrzymaniem asio.** Pole `m_threadPool` jest niszczone w `~WorkerClient()`, a wątek asio zatrzymuje dopiero `~client_interface()`, który wykonuje się później. W tym oknie handler wiadomości może wrzucić zadanie do zniszczonej puli. Kierunek: destruktor `WorkerClient` najpierw woła `Disconnect()`.
+- [ ] **`IsConnected()` czyta stan gniazda z innego wątku niż asio.** Pętla w `main` workera i `client_interface::Disconnect()` wołają `m_socket.is_open()`, a wątek asio może w tym czasie zamknąć gniazdo. To wyścig danych, którego TSan nie widzi, bo testy nie uruchamiają tej ścieżki. Kierunek: flaga `std::atomic<bool>` ustawiana w `HandleDisconnect`.
 
 ## Wykrywanie awarii i poprawność wyników
 
-- [ ] `OnClientDisconnect` nie jest wywoływany po crashu workera, więc zadania nie wracają do kolejki.
+- [x] `OnClientDisconnect` nie jest wywoływany po crashu workera, więc zadania nie wracają do kolejki. Naprawione w `438f08c` i `7601add`: błąd odczytu lub zapisu trafia do kolejki jako zdarzenie rozłączenia, a martwe połączenie jest usuwane. Pokrywają to testy w `test_master_integration.cpp`. Do zrobienia: weryfikacja `kill -9` na prawdziwym klastrze.
 - [ ] Worker nie umie zgłosić nieudanego chunka (brak pliku, błędny regex) i zwraca pusty wynik liczony jako sukces.
 - [ ] Nieudana agregacja lub zapis wyników i tak zwiększa `chunks_done`; `linesCount` może pokazać linie, których nie zapisano.
 - [ ] `m_workersFreeSlots` może przekręcić się poniżej zera przy równoległym przydzielaniu (`AssignIdleWorkers` czyta liczbę slotów pod lockiem, a wysyła po jego zwolnieniu).
