@@ -12,6 +12,16 @@ Do końca stycznia chcemy mieć:
 
 Badania dotyczą wydajności silnika i jego reakcji na awarie. Telemetria jest zbiorem testowym i przypadkiem użycia.
 
+## Obliczenie testowe
+
+Ustalone 9 listopada 2026: w styczniu LogGrid liczy proste statystyki z danych telemetrycznych zamiast wyszukiwania po wyrażeniu regularnym.
+
+- Na początek jeden kanał, np. odczyty termometru.
+- Statystyki muszą dać się łączyć z wyników cząstkowych chunków: `count`, `sum`, `min`, `max`, a średnia wynika z `sum / count`. Mediany i percentyle odpadają, bo nie da się ich złożyć z wyników cząstkowych.
+- Worker zachowuje obecną obsługę granic chunków, a zmienia się tylko obróbka pojedynczej linii.
+- Zmieniają się `ChunkResult`, protokół `TaskDone` i agregacja wyników na masterze.
+- Spóźniony lub zduplikowany `TaskDone` nie może zmienić statystyk. Istniejące testy mastera sprawdzają to dla liczników chunków, a po zmianie trzeba je rozszerzyć o statystyki.
+
 ## Przyjęty model
 
 ```text
@@ -84,7 +94,7 @@ Heartbeat i limity czasu są potrzebne do wykrywania awarii maszyny lub sieci, b
 
 ### 3. Weryfikacja poprawności
 
-- [ ] Program referencyjny wykonujący ten sam filtr na tych samych danych.
+- [ ] Program referencyjny liczący te same statystyki na tych samych danych.
 - [ ] Dane testowe z unikalnym ID w każdym rekordzie.
 - [ ] Porównanie niezależne od kolejności wyników.
 - [ ] Testy bez awarii, z awarią i na granicach zakresów.
@@ -103,11 +113,11 @@ Heartbeat i limity czasu są potrzebne do wykrywania awarii maszyny lub sieci, b
 
 ### 5. Porównanie z Flinkiem w trybie wsadowym
 
-- [ ] Te same dane i ten sam filtr oraz porównywalne zasoby.
+- [ ] Te same dane, te same statystyki i porównywalne zasoby.
 - [ ] Zapisana konfiguracja obu systemów, w tym wykrywania awarii we Flinku.
 - [ ] Pomiar przepustowości i czasu całego zadania.
 - [ ] Pomiar czasu wykrycia awarii i wznowienia pracy.
-- [ ] Osobne sprawdzenie kosztu filtrowania, bo LogGrid używa `std::regex`, a Flink działa na JVM.
+- [ ] Osobne sprawdzenie kosztu parsowania rekordów, bo LogGrid działa w C++, a Flink na JVM.
 
 Pierwsze testy wykonujemy lokalnie na NVMe.
 
@@ -154,8 +164,9 @@ To test poprawności pomiaru, a nie badanie wydajności trybu ciągłego.
 
 **Z Jankiem:**
 
-1. Podział odpowiedzialności za generator, konfigurację Flinka, program referencyjny i automatyzację pomiarów.
-2. Format metryk i prowadzenie wykazu rzeczywistego wkładu.
+1. Format danych telemetrycznych (polecany CSV z jednym rekordem w linii), wybrany kanał i dokładna lista statystyk.
+2. Podział odpowiedzialności za generator, konfigurację Flinka, program referencyjny i automatyzację pomiarów.
+3. Format metryk i prowadzenie wykazu rzeczywistego wkładu.
 
 **Z FutureLab:**
 
