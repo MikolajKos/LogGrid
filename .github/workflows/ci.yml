@@ -25,6 +25,36 @@ jobs:
     - name: Run GTest suite
       run: docker run --rm loggrid-tests
 
+  # Runs on the GitHub VM instead of Docker: TSan needs lower mmap
+  # randomization, which Docker's default seccomp profile does not allow
+  sanitizers:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # report both sanitizers even if one fails
+      matrix:
+        sanitizer: [ address, thread ]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Ninja
+      run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+    # Linux 6.x randomizes mmap more than TSan supports ("unexpected memory mapping")
+    - name: Lower mmap randomization for TSan
+      if: matrix.sanitizer == 'thread'
+      run: sudo sysctl vm.mmap_rnd_bits=28
+
+    - name: Configure
+      run: cmake -B build -G Ninja -DLOGGRID_SANITIZER=${{ matrix.sanitizer }}
+
+    - name: Build
+      run: cmake --build build
+
+    - name: Run tests
+      run: ctest --test-dir build --output-on-failure
+
   coverage:
     runs-on: ubuntu-latest
     needs: build-and-test
