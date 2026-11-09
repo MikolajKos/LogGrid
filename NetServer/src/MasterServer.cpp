@@ -476,8 +476,8 @@ LogSystem::ChunkResult MasterServer::DeserializeBatch(olc::net::message<LogSyste
     size_t offset = 0;
     for (uint32_t i = 0; i < lineCount; ++i) {
         uint32_t len;
-        std::memcpy(&len, msg.body.data() + offset, 4); // Read 4 bytes
-        offset += 4;
+        std::memcpy(&len, msg.body.data() + offset, sizeof(len)); // Read 4 bytes
+        offset += sizeof(len);
 
         lines.emplace_back(
             reinterpret_cast<const char*>(msg.body.data() + offset), len

@@ -36,7 +36,7 @@ namespace olc
                     auto endpoints = resolver.resolve(host, std::to_string(port));
 
                     // Create connection
-                    m_connection = std::make_unique<connection<T>>(
+                    m_connection = std::make_shared<connection<T>>(
                         connection<T>::owner::client,
                         m_context,
                         asio::ip::tcp::socket(m_context),
@@ -73,7 +73,7 @@ namespace olc
                 if(thrContext.joinable())
                     thrContext.join();
 
-                m_connection.release();
+                m_connection.reset();
             }
 
             bool IsConnected() {
@@ -102,7 +102,7 @@ namespace olc
             
             asio::ip::tcp::socket m_socket;
             
-            std::unique_ptr<connection<T>> m_connection;
+            std::shared_ptr<connection<T>> m_connection;
             
         private:
             tsqueue<owned_message<T>> m_qMessagesIn;

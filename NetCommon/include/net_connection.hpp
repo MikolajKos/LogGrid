@@ -45,7 +45,7 @@ namespace olc
             void ConnectToServer(const asio::ip::tcp::resolver::results_type& endpoints,
                 std::function<void(bool)> funcHandler) {
                 asio::async_connect(m_socket, endpoints,
-                    [this, funcHandler](std::error_code ec, asio::ip::tcp::endpoint endpoint) {
+                    [this, self = this->shared_from_this(), funcHandler](std::error_code ec, asio::ip::tcp::endpoint endpoint) {
                         if (!ec) {
                             // Success
                             ReadHeader();
@@ -60,7 +60,7 @@ namespace olc
 
             void Disconnect() {
                 if (IsConnected())
-                    asio::post(m_asioContext, [this]() { m_socket.close(); });
+                    asio::post(m_asioContext, [this, self = this->shared_from_this()]() { m_socket.close(); });
             }
 
             bool IsConnected() const {
@@ -68,7 +68,7 @@ namespace olc
             }
 
             void Send(const message<T>& msg) {
-                asio::post(m_asioContext, [this, msg]() {
+                asio::post(m_asioContext, [this, self = this->shared_from_this(), msg]() {
                     bool bWrittingMessage = !m_qMessagesOut.empty();
 
                     m_qMessagesOut.push_back(msg);
@@ -85,7 +85,7 @@ namespace olc
         private:
             void ReadHeader() {
                     asio::async_read(m_socket, asio::buffer(&m_msgTemporaryIn.header, sizeof(message_header<T>)),
-                    [this](asio::error_code ec, size_t length) {
+                    [this, self = this->shared_from_this()](asio::error_code ec, size_t length) {
                         if (!ec) {
                             if (m_msgTemporaryIn.header.size > 0) {
                                 m_msgTemporaryIn.body.resize(m_msgTemporaryIn.header.size);
@@ -97,27 +97,27 @@ namespace olc
                         }
                         else {
                             std::cout << "[" << id << "] Read Header Fail.\n";
-                            m_socket.close();
+                            HandleDisconnect();
                         }
                     });
             }
 
             void ReadBody() {
                 asio::async_read(m_socket, asio::buffer(m_msgTemporaryIn.body.data(), m_msgTemporaryIn.body.size()),
-                    [this](asio::error_code ec, size_t length) {
+                    [this, self = this->shared_from_this()](asio::error_code ec, size_t length) {
                         if (!ec) {
                             AddToIncomingMessageQueue();
                         }
                         else {
                             std::cout << "[" << id << "] Read Body Fail.\n";
-                            m_socket.close();
+                            HandleDisconnect();
                         }
                     });
             }
 
             void WriteHeader() {
                 asio::async_write(m_socket, asio::buffer(&m_qMessagesOut.front().header, sizeof(message_header<T>)),
-                    [this](asio::error_code ec, size_t length) {
+                    [this, self = this->shared_from_this()](asio::error_code ec, size_t length) {
                         if (!ec) {
                             if (m_qMessagesOut.front().body.size() > 0) {
                                 WriteBody();
@@ -132,14 +132,14 @@ namespace olc
                         }
                         else {
                             std::cout << "[" << id << "] Write Header Fail.\n";
-                            m_socket.close();
+                            HandleDisconnect();
                         }
                     });
             }
 
             void WriteBody() {
                 asio::async_write(m_socket, asio::buffer(m_qMessagesOut.front().body.data(), m_qMessagesOut.front().body.size()),
-                    [this](asio::error_code ec, size_t length) {
+                    [this, self = this->shared_from_this()](asio::error_code ec, size_t length) {
                         if (!ec) {
                             m_qMessagesOut.pop_front();
 
@@ -149,6 +149,7 @@ namespace olc
                         }
                         else {
                             std::cout << "[" << id << "] Write Body Fail.\n";
+                            HandleDisconnect();
                         }
                     });
             }
@@ -165,6 +166,25 @@ namespace olc
                 }
 
                 ReadHeader();
+            }
+
+            /**
+             * @brief Closes the socket after a read or write error and reports the disconnect once.
+             *
+             * On the server side, a disconnect event is queued in m_qMessagesIn behind any
+             * messages already received from this connection, so the owner handles them first
+             * and then calls OnClientDisconnect from the same thread. Later errors on the same
+             * connection, e.g. a write failing after a read failure, are ignored.
+             */
+            void HandleDisconnect() {
+                if (m_isDisconnected) return;
+
+                m_isDisconnected = true;
+                m_socket.close();
+
+                if (m_nOwnerType == owner::server) {
+                    m_qMessagesIn.push_back({ this->shared_from_this(), {}, true });
+                }
             }
 
             protected:
@@ -189,6 +209,10 @@ namespace olc
 
             // OnMessage callback foothold
             std::function<void(message<T>&)> m_msgCallback;
+
+            // Set once the disconnect has been reported. A plain bool is enough because
+            // every handler of this connection runs on the single asio context thread.
+            bool m_isDisconnected = false;
         };
     }
 }

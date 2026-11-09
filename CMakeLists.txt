@@ -13,6 +13,43 @@ else()
 endif()
 
 # ==========================================
+# Sanitizers
+# ==========================================
+# Configure a separate build directory per sanitizer, for example:
+#   cmake -B build-asan -G Ninja -DLOGGRID_SANITIZER=address
+#   cmake -B build-tsan -G Ninja -DLOGGRID_SANITIZER=thread
+# Set before GoogleTest so the test framework is instrumented too.
+# On kernels with high mmap randomization (e.g. Linux 6.x), TSan binaries abort with
+# "unexpected memory mapping". Build and test with ASLR disabled for the process:
+#   setarch $(uname -m) -R cmake --build build-tsan
+#   cd build-tsan && setarch $(uname -m) -R ctest --output-on-failure
+set(LOGGRID_SANITIZER "" CACHE STRING "Sanitizer to enable: address (ASan + UBSan) or thread (TSan)")
+set_property(CACHE LOGGRID_SANITIZER PROPERTY STRINGS "" address thread)
+
+if(LOGGRID_SANITIZER)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR "Sanitizers require GCC or Clang")
+    endif()
+
+    if(LOGGRID_SANITIZER STREQUAL "address")
+        set(LOGGRID_SANITIZER_FLAGS -fsanitize=address,undefined -fno-sanitize-recover=undefined)
+    elseif(LOGGRID_SANITIZER STREQUAL "thread")
+        set(LOGGRID_SANITIZER_FLAGS -fsanitize=thread)
+        # GCC warns that TSan does not model the atomic_thread_fence used inside
+        # asio; -Werror would turn that into a build failure
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+            add_compile_options(-Wno-tsan)
+        endif()
+    else()
+        message(FATAL_ERROR "Unknown LOGGRID_SANITIZER '${LOGGRID_SANITIZER}', use address or thread")
+    endif()
+
+    add_compile_options(${LOGGRID_SANITIZER_FLAGS} -fno-omit-frame-pointer -g)
+    add_link_options(${LOGGRID_SANITIZER_FLAGS})
+    message(STATUS "LogGrid sanitizer: ${LOGGRID_SANITIZER}")
+endif()
+
+# ==========================================
 # GoogleTest Setup
 # ==========================================
 
