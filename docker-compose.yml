@@ -15,7 +15,9 @@ services:
       - /data/logs:/app/data:ro
       - "/data/loggrid:/data/loggrid"
 
-  worker-1:
+  # One definition for all workers; start several with:
+  #   docker compose up -d --scale worker=4
+  worker:
     build:
       context: .
       dockerfile: Dockerfile
@@ -23,16 +25,7 @@ services:
     depends_on:
       - master-node
     tty: true # -it option
-    volumes:
-      - /data/logs:/app/data:ro # read only
-
-  worker-2:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: worker_image
-    depends_on:
-      - master-node
-    tty: true # -it option
+    # CPU limit per worker, e.g. LOGGRID_WORKER_CPUS=2; 0 means no limit
+    cpus: ${LOGGRID_WORKER_CPUS:-0}
     volumes:
       - /data/logs:/app/data:ro # read only
