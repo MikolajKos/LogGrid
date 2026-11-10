@@ -78,7 +78,7 @@ def wait_for_done(search_id, url_base, timeout_s):
             if answer["state"] == "Done":
                 return answer
 
-            time.sleep(0.5)
+            time.sleep(0.05)
         except urllib.error.URLError as e:
             print("GET Error:", e)
             raise
