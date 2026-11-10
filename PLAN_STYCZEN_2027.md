@@ -1,6 +1,6 @@
 # LogGrid: założenia i plan na styczeń 2027
 
-Stan na 9 listopada 2026. Dokument łączy propozycje dr. Filipa Krużela z obecną architekturą. W sprawie pomiarów i modelu danych ma pierwszeństwo przed wcześniejszym `MVP_JANUARY_2027.md`.
+Stan na 10 listopada 2026. Dokument łączy propozycje dr. Filipa Krużela z obecną architekturą. W sprawie pomiarów i modelu danych ma pierwszeństwo przed wcześniejszym `MVP_JANUARY_2027.md`.
 
 ## Cel
 
@@ -41,11 +41,14 @@ odbiorca ← wyniki ← master ←───────────────�
 | Obszar | Stan |
 |---|---|
 | Wsadowy podział plików, komunikacja master-worker, wyszukiwanie katalogów | Działa, PR #45 scalony |
-| Testy integracyjne mastera | 8 scenariuszy, gałąź `test/master-integration`, uruchamiane w CI |
-| Odzyskiwanie po awarii | Rozłączenie workera wywołuje `OnClientDisconnect`, a zadania wracają do kolejki. Brak weryfikacji `kill -9` na klastrze |
+| Testy integracyjne mastera | 9 scenariuszy, uruchamiane w CI |
+| Odzyskiwanie po awarii | Zweryfikowane na klastrze: 55 przebiegów z `kill -9` workera w różnych momentach pracy, wszystkie z pełnym wynikiem (`bench/results/`) |
 | Czas życia połączeń | Handlery trzymają `shared_from_this()`. Otwarte: kolejność niszczenia w `WorkerClient` (`KNOWN_ISSUES.md`) |
 | Sanitizery | Opcja `LOGGRID_SANITIZER`, ASan/UBSan i TSan czyste lokalnie i dodane do CI |
+| Build obrazów | Release (`-O3`), wcześniej bez optymalizacji, około 8 razy wolniej |
+| Skrypt pomiarowy | `bench/kill_worker.py`: liczba workerów, liczba zabitych, limit CPU, wyniki w CSV |
 | Rozmiar chunka | Stała w kodzie, obecnie 5 MB |
+| Liczba wątków workera | Z `hardware_concurrency()`, nie uwzględnia limitu CPU kontenera |
 | Host mastera | Stała w kodzie workera, `master-node` |
 | Metryki | Brak eksportu |
 | Generator o stałym tempie i obserwator | Do zbudowania |
@@ -81,14 +84,14 @@ Scenariusze:
 
 **Gotowe, gdy:** test crasha powtarzalnie ujawnia obecny błąd, bez stałych opóźnień w teście i konfliktów portów.
 
-### 2. Naprawa wykrywania rozłączeń i odzyskiwania zadań (w trakcie)
+### 2. Naprawa wykrywania rozłączeń i odzyskiwania zadań (zrobione)
 
 - [x] Ustalić właściciela połączenia i wątek obsługi rozłączenia.
 - [x] Naprawić czas życia operacji asynchronicznych w `connection`.
 - [x] Przekazywać błąd odczytu lub zapisu do logiki rozłączenia dokładnie raz.
 - [x] Usuwać martwe połączenia i przywracać ich zadania.
 - [x] Uruchamiać testy z ASan/UBSan i TSan.
-- [ ] Sprawdzić `kill -9` workera podczas pracy na klastrze z `docker compose`.
+- [x] Sprawdzić `kill -9` workera podczas pracy na klastrze z `docker compose`. Wyniki i raport w `bench/results/`.
 
 **Gotowe, gdy:** `kill -9` workera podczas pracy nie zawiesza klastra, a sesja kończy się z pełnym wynikiem.
 
@@ -107,7 +110,10 @@ Heartbeat i limity czasu są potrzebne do wykrywania awarii maszyny lub sieci, b
 
 ### 4. Konfiguracja i metryki
 
+- [x] Obrazy budowane w trybie Release.
+- [x] Skrypt serii pomiarowej z zapisem do CSV (`bench/kill_worker.py`), z liczbą workerów i limitem CPU jako parametrami.
 - [ ] Rozmiar chunka, host i port ustawiane bez przebudowy obrazu.
+- [ ] Liczba wątków workera ustawiana z zewnątrz, zgodnie z limitem CPU kontenera.
 - [ ] Wspólny format metryk ustalony z Jankiem.
 - [ ] Zapis czasu zadania, przepustowości oraz czasu wykrycia awarii i wznowienia pracy.
 
