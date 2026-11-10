@@ -1,0 +1,2 @@
+timestamp,commit,dataset,files,size_mb,kill_at,killed_at_chunk,reclaimed,expected,found,chunks,time_s,ok,error
+2026-11-10T16:43:21,0f29628,killtest,40,1511,,,0,3997432,3997432,320/320,4.02,PASS,
