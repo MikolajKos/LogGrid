@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y cmake g++ make ninja-build git
 COPY . .
 
 # build project
-RUN mkdir build && cd build && cmake .. -G "Ninja" && ninja
+RUN mkdir build && cd build && cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release && ninja
 
 # ====================================================
 # MASTER IMAGE
