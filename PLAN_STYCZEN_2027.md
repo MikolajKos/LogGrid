@@ -42,7 +42,7 @@ odbiorca ← wyniki ← master ←───────────────�
 |---|---|
 | Wsadowy podział plików, komunikacja master-worker, wyszukiwanie katalogów | Działa, PR #45 scalony |
 | Testy integracyjne mastera | 9 scenariuszy, uruchamiane w CI |
-| Odzyskiwanie po awarii | Zweryfikowane na klastrze: 55 przebiegów z `kill -9` workera w różnych momentach pracy, wszystkie z pełnym wynikiem (`bench/results/`) |
+| Odzyskiwanie po awarii | Zweryfikowane na klastrze: 73 przebiegi z `kill -9` workera w różnych momentach pracy, wszystkie z pełnym wynikiem (`bench/results/`) |
 | Czas życia połączeń | Handlery trzymają `shared_from_this()`. Otwarte: kolejność niszczenia w `WorkerClient` (`KNOWN_ISSUES.md`) |
 | Sanitizery | Opcja `LOGGRID_SANITIZER`, ASan/UBSan i TSan czyste lokalnie i dodane do CI |
 | Build obrazów | Release (`-O3`), wcześniej bez optymalizacji, około 8 razy wolniej |

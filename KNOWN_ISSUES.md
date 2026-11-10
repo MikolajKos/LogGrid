@@ -13,7 +13,7 @@ Stan na 10 listopada 2026. Uwagi z przeglądów PR #45 i z pracy nad testami mas
 
 ## Wykrywanie awarii i poprawność wyników
 
-- [x] `OnClientDisconnect` nie jest wywoływany po crashu workera, więc zadania nie wracają do kolejki. Naprawione w `438f08c` i `7601add`: błąd odczytu lub zapisu trafia do kolejki jako zdarzenie rozłączenia, a martwe połączenie jest usuwane. Pokrywają to testy w `test_master_integration.cpp`, a `kill -9` workera na klastrze sprawdzono w 55 przebiegach (`bench/results/`).
+- [x] `OnClientDisconnect` nie jest wywoływany po crashu workera, więc zadania nie wracają do kolejki. Naprawione w `438f08c` i `7601add`: błąd odczytu lub zapisu trafia do kolejki jako zdarzenie rozłączenia, a martwe połączenie jest usuwane. Pokrywają to testy w `test_master_integration.cpp`, a `kill -9` workera na klastrze sprawdzono w 73 przebiegach (`bench/results/`).
 - [ ] Worker nie umie zgłosić nieudanego chunka (brak pliku, błędny regex) i zwraca pusty wynik liczony jako sukces.
 - [ ] Nieudana agregacja lub zapis wyników i tak zwiększa `chunks_done`; `linesCount` może pokazać linie, których nie zapisano.
 - [ ] `m_workersFreeSlots` może przekręcić się poniżej zera przy równoległym przydzielaniu (`AssignIdleWorkers` czyta liczbę slotów pod lockiem, a wysyła po jego zwolnieniu).
