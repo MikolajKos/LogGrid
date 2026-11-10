@@ -1,7 +1,7 @@
 """Kill -9 verification for LogGrid task recovery.
 
-Runs the docker compose cluster (master + 2 workers), starts a search and kills
-worker-1 with SIGKILL once a given fraction of chunks is done. Each run checks
+Runs the docker compose cluster (master + N workers), starts a search and kills
+K workers with SIGKILL once a given fraction of chunks is done. Each run checks
 that the session still finishes and that totalMatches equals `grep -c`.
 
 This is a correctness check, not a performance benchmark: chunk size comes from
@@ -10,6 +10,7 @@ DOCKER_DEBUG and timings come from one local machine.
 Usage (from the repository root):
     python3 bench/kill_worker.py                     # baseline + kills at 25/50/75%
     python3 bench/kill_worker.py --kill-at 0.5 --repeat 3
+    python3 bench/kill_worker.py --workers 2 4 --kill-count 1 --worker-cpus 2
 
 Results go to bench/results/kill_worker_<date>-<time>.csv, one file per series
 (or to the file given with --csv).
@@ -19,6 +20,7 @@ import argparse
 import csv
 import datetime
 import json
+import os
 import subprocess
 import time
 import urllib.error
@@ -136,18 +138,38 @@ def dataset_size_mb(dataset):
 # One scenario
 # ---------------------------------------------------------------------------
 
-def run_scenario(dataset, kill_at, expected, timeout_s, build):
+def wait_for_workers(count, timeout_s):
+    """Waits until the master has received Hello from `count` workers."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        logs = run(["docker", "compose", "logs", "master-node"])
+        if logs.count("Hello message") >= count:
+            return
+        time.sleep(0.2)
+
+    raise TimeoutError(f"Not all {count} workers connected")
+
+
+def worker_containers():
+    """Names of the running worker containers, sorted (loggrid-worker-1, -2, ...)."""
+    out = run(["docker", "compose", "ps", "--format", "{{.Name}}", "worker"])
+    return sorted(out.split(), key=lambda name: int(name.rsplit("-", 1)[1]))
+
+
+def run_scenario(dataset, kill_at, expected, timeout_s, build, workers, kill_count):
     """Runs one search on a fresh cluster.
 
-    kill_at: fraction of chunks done (0..1) at which worker-1 gets SIGKILL,
-             or None for a run without a failure.
+    kill_at: fraction of chunks done (0..1) at which `kill_count` workers get
+             SIGKILL, or None for a run without a failure.
     """
-    result = {"kill_at": kill_at, "expected": expected, "killed_at_chunk": None}
+    result = {"kill_at": kill_at, "expected": expected, "killed_at_chunk": None,
+              "workers": workers, "kill_count": kill_count if kill_at is not None else 0}
 
     try:
-        run(["docker", "compose", "up", "-d"] + (["--build"] if build else []))
+        run(["docker", "compose", "up", "-d", "--scale", f"worker={workers}"]
+            + (["--build"] if build else []))
         wait_for_master(f"{MASTER}/api/status/0", 30)
-        time.sleep(1)  # let both workers connect and send Hello
+        wait_for_workers(workers, 30)
 
         start = time.monotonic()
         search_id = post_json(f"{MASTER}/api/search",
@@ -162,7 +184,8 @@ def run_scenario(dataset, kill_at, expected, timeout_s, build):
                 if status["state"] == "Done":
                     break  # finished before the kill point: the run is not valid
                 if total and done >= kill_at * total:
-                    run(["docker", "compose", "kill", "worker-1"])  # SIGKILL by default
+                    victims = worker_containers()[:kill_count]
+                    run(["docker", "kill"] + victims)  # SIGKILL by default
                     result["killed_at_chunk"] = f"{done}/{total}"
                     break
                 time.sleep(0.05)
@@ -180,7 +203,7 @@ def run_scenario(dataset, kill_at, expected, timeout_s, build):
     except TimeoutError as e:
         result["error"] = str(e)  # the session hung: this is a FAIL, not a crash
     finally:
-        run(["docker", "compose", "down"])
+        run(["docker", "compose", "down", "--remove-orphans"])
 
     result["ok"] = verdict(result)
     return result
@@ -204,21 +227,23 @@ def verdict(r):
 
 def markdown_table(results):
     lines = [
-        "| Zabicie workera | Chunki przy zabiciu | Wykryte awarie | Oczekiwane | Znalezione | Czas sesji [s] | Wynik |",
-        "|---|---|---|---|---|---|---|",
+        "| Workery | Zabite | Moment zabicia | Chunki przy zabiciu | Wykryte awarie | Oczekiwane | Znalezione | Czas sesji [s] | Wynik |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in results:
         kill = "brak" if r["kill_at"] is None else f"po {r['kill_at']:.0%} chunków"
         time_s = f"{r['time_s']:.1f}" if "time_s" in r else "-"
         lines.append(
-            f"| {kill} | {r['killed_at_chunk'] or '-'} | {r.get('reclaimed', '-')} "
+            f"| {r['workers']} | {r['kill_count']} | {kill} | {r['killed_at_chunk'] or '-'} "
+            f"| {r.get('reclaimed', '-')} "
             f"| {r['expected']} | {r.get('found', '-')} | {time_s} | {r['ok']} |"
         )
     return "\n".join(lines)
 
 
 CSV_FIELDS = [
-    "timestamp", "commit", "dataset", "files", "size_mb", "kill_at", "killed_at_chunk",
+    "timestamp", "commit", "dataset", "files", "size_mb", "workers", "worker_cpus",
+    "kill_count", "kill_at", "killed_at_chunk",
     "reclaimed", "expected", "found", "chunks", "time_s", "ok", "error",
 ]
 
@@ -238,11 +263,12 @@ def append_csv(path, row):
         writer.writerow(row)
 
 
-def environment(dataset):
+def environment(dataset, worker_cpus):
     commit = run(["git", "rev-parse", "--short", "HEAD"]).strip()
     files = len(list((DATA_ROOT / dataset).glob("*.log")))
+    cpus = f"limit {worker_cpus:g} CPU na workera" if worker_cpus else "bez limitu CPU"
     return (f"Commit `{commit}`, {files} plików, {dataset_size_mb(dataset):.0f} MB, "
-            f"chunk 5 MB (DOCKER_DEBUG), master + 2 workery w docker compose, "
+            f"chunk 5 MB (DOCKER_DEBUG), docker compose na jednej maszynie, {cpus}, "
             f"wzorzec `{KEYWORD}`, referencja `grep -c`.")
 
 
@@ -257,11 +283,25 @@ def main():
                         help="fractions of chunks done at which worker-1 is killed")
     parser.add_argument("--no-baseline", action="store_true",
                         help="skip the run without a failure")
+    parser.add_argument("--workers", type=int, nargs="+", default=[2],
+                        help="numbers of workers to test, e.g. --workers 1 2 4 (default: 2)")
+    parser.add_argument("--kill-count", type=int, default=1,
+                        help="how many workers to kill at each kill point (default: 1)")
+    parser.add_argument("--worker-cpus", type=float, default=0,
+                        help="CPU limit per worker container, 0 = no limit (default: 0)")
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=180)
     parser.add_argument("--csv", help="CSV file for the results "
                              "(default: a new timestamped file in bench/results)")
     args = parser.parse_args()
+
+    # Killing every worker leaves nobody to finish the session
+    too_small = [w for w in args.workers if w <= args.kill_count]
+    if args.kill_at and too_small:
+        parser.error(f"--kill-count {args.kill_count} needs more workers than {too_small}")
+
+    # Read by docker-compose.yml for every `docker compose up`
+    os.environ["LOGGRID_WORKER_CPUS"] = f"{args.worker_cpus:g}"
 
     ensure_dataset(args.dataset, args.files, args.lines, timeout_s=600)
     expected = reference_count(args.dataset)
@@ -273,6 +313,7 @@ def main():
         "dataset": args.dataset,
         "files": len(list((DATA_ROOT / args.dataset).glob("*.log"))),
         "size_mb": round(dataset_size_mb(args.dataset)),
+        "worker_cpus": args.worker_cpus,
     }
 
     csv_path = args.csv or (Path(__file__).parent / "results" /
@@ -283,8 +324,9 @@ def main():
     results = []
     build = True
     for _ in range(args.repeat):
-        for kill_at in scenarios:
-            r = run_scenario(args.dataset, kill_at, expected, args.timeout, build)
+        for workers, kill_at in [(w, k) for w in args.workers for k in scenarios]:
+            r = run_scenario(args.dataset, kill_at, expected, args.timeout, build,
+                             workers, args.kill_count)
             build = False  # images do not change between runs
             print(r)
             results.append(r)
@@ -298,7 +340,7 @@ def main():
     print()
     print(markdown_table(results))
     print()
-    print(environment(args.dataset))
+    print(environment(args.dataset, args.worker_cpus))
 
     if any(r["ok"].startswith("FAIL") for r in results):
         raise SystemExit(1)
