@@ -50,11 +50,11 @@ Worker   Worker        ← each Worker runs a local ThreadPool
 ## Architecture & Highlights
 
 * **Master-Worker Pipeline** — Master splits log files into byte-aligned chunks and saturates every Worker thread with parallel tasks on connect. As each chunk completes, it is immediately replenished — eliminating idle gaps and maximising throughput.
-* **Disk I/O Aggregation** — Unbounded in-memory vectors have been eliminated. The Master safely appends batched results from Workers directly to disk, ensuring low RAM footprint even for 50GB+ log searches.
-* **Fault Tolerance** — On Worker disconnect, all in-flight tasks are atomically reclaimed and redistributed across every available idle Worker in a single pass — zero manual intervention, zero lost work.
+* **Disk I/O Aggregation** — Unbounded in-memory vectors have been eliminated. The Master appends batched results from Workers directly to disk instead of keeping them in memory.
+* **Fault Tolerance** — On Worker disconnect, all in-flight tasks are atomically reclaimed and redistributed across every available idle Worker in a single pass — zero manual intervention, zero lost work. Verified on a Docker Compose cluster: in 73 runs a Worker was killed with `kill -9` at 5–95% of the work, and every session finished with all chunks done and a match count equal to `grep -c` (see [Benchmarks](#benchmarks)).
 * **Async, Non-Blocking API** — Built on standalone ASIO (`io_context`). The legacy blocking `promise/future` patterns were removed. The REST API is fully asynchronous, allowing clients to poll live search states.
 * **Stateless Workers, Persistent Connections** — Workers advertise their thread capacity on connect and remain alive between search sessions — ready to serve the next request without reconnection overhead.
-* **Fully Containerized** — One `docker compose up --build` spins up the entire distributed cluster. Multi-stage Docker builds, a shared log volume, and a healthcheck guarantee correct startup ordering.
+* **Fully Containerized** — One `docker compose up --build` spins up the entire distributed cluster. Multi-stage Docker builds in Release mode, a shared log volume, and one scalable Worker service (`--scale worker=N`).
 
 ---
 
@@ -90,8 +90,8 @@ LogGrid analyzes log files mounted into the cluster (configured via `/data/logs`
 # 1. Clone the repository
 git clone https://github.com/MikolajKos/LogGrid.git && cd LogGrid
 
-# 2. Spin up Master + Workers
-docker compose up -d --build
+# 2. Spin up Master + Workers (2 by default; e.g. --scale worker=4 for more)
+docker compose up -d --build --scale worker=2
 
 # 3. Trigger a search (Single file or entire directory)
 curl -X POST http://localhost:8080/api/search \
@@ -109,6 +109,39 @@ curl http://localhost:8080/api/status/0
 # 5. View live cluster logs
 docker compose logs -f
 ```
+
+---
+
+## Testing
+
+```bash
+# Unit and integration tests
+cmake -B build -G Ninja && cmake --build build
+cd build && ctest --output-on-failure
+
+# AddressSanitizer + UndefinedBehaviorSanitizer
+cmake -B build-asan -G Ninja -DLOGGRID_SANITIZER=address
+
+# ThreadSanitizer; on Linux 6.x run build and tests with ASLR disabled
+cmake -B build-tsan -G Ninja -DLOGGRID_SANITIZER=thread
+setarch $(uname -m) -R cmake --build build-tsan
+```
+
+CI runs the test suites in the Release Docker image and in separate ASan/UBSan and TSan builds.
+
+## Benchmarks
+
+`bench/kill_worker.py` checks task recovery on the Docker Compose cluster. It starts the cluster, runs a search, kills Workers with SIGKILL once a given fraction of chunks is done, and compares the result with `grep -c` on the same files. Each run is PASS, FAIL (wrong count, hung session or a master failure after the search started), INVALID (the kill did not test recovery) or ERROR (the cluster did not start), and is saved as one CSV row in `bench/results/`.
+
+```bash
+# Run without a failure, then kills at 5/25/50/75/95% of chunks, 5 times
+python3 bench/kill_worker.py --kill-at 0.05 0.25 0.5 0.75 0.95 --repeat 5
+
+# 4 Workers limited to 2 CPUs each, kill 2 of them halfway
+python3 bench/kill_worker.py --workers 4 --worker-cpus 2 --kill-count 2 --kill-at 0.5
+```
+
+Run it from the repository root. Test data comes from [CrazyPrinter API](https://github.com/MikolajKos/crazy-printer-api) and is generated on first use if the dataset directory does not exist. These runs check correctness on a single machine; they are not performance benchmarks.
 
 ---
 
@@ -192,13 +225,14 @@ docker compose logs -f
 ### Done
 - [x] **Async TCP networking** — non-blocking ASIO `io_context`; Master and Workers communicate via a typed binary protocol with length-prefixed batched messages
 - [x] **Pipeline dispatch & disk I/O aggregation** — Master saturates Worker threads, collects batched payloads, and dynamically writes matched lines directly to disk files without exhausting RAM
-- [x] **Fault tolerance** — all in-flight tasks atomically reclaimed on Worker disconnect and redistributed across every idle Worker in a single pass
+- [x] **Fault tolerance** — all in-flight tasks atomically reclaimed on Worker disconnect and redistributed across every idle Worker in a single pass; verified with `kill -9` on a Docker Compose cluster
 - [x] **Byte-aligned chunk splitting** — file partitioned at exact line boundaries; Worker ThreadPool processes chunks in parallel with CPU-oversubscription protection
 - [x] **HTTP REST API** — `POST /api/search` triggers distributed search; `GET /api/status/{id}` asynchronously polls real-time session metrics (including `chunksDone` and `totalMatches`)
 - [x] **Recursive Directory Search** — `path` accepts both individual files and directories; Master enumerates all files recursively, skips empty files, and distributes chunks across a single unified search session
 - [x] **Configurable Path Sandboxing** — `LOGGRID_INPUT_DIR` and `LOGGRID_OUTPUT_DIR` environment variables configure host/container paths with built-in Path Traversal protection
-- [x] **Comprehensive CI/CD & testing** — GoogleTest unit and integration suites (parametrized, edge-case, and real TCP end-to-end); gcov/lcov coverage pipeline
-- [x] **Production-grade containerization** — unified multi-stage `Dockerfile`, Docker Compose orchestration, healthcheck-enforced startup ordering, port `8080` exposed for HTTP API
+- [x] **Comprehensive CI/CD & testing** — GoogleTest unit and integration suites (parametrized, edge-case, and real TCP end-to-end); gcov/lcov coverage pipeline; ASan/UBSan and TSan builds in CI
+- [x] **Containerization** — unified multi-stage `Dockerfile` with Release builds, Docker Compose with a scalable Worker service and optional CPU limit, port `8080` exposed for HTTP API
+- [x] **Recovery benchmark** — `bench/kill_worker.py` kills Workers during a search and checks the result against `grep -c`
 
 ### Planned
 - [ ] **Result pagination API** — `GET /api/search/{id}/results?offset=0&count=100` to safely serve the aggregated file lines back to the client
@@ -212,6 +246,9 @@ docker compose logs -f
 ```
 .
 ├── CMakeLists.txt
+├── bench
+│   ├── kill_worker.py               # kill -9 recovery check on the Compose cluster
+│   └── results/                     # CSV results and reports
 ├── docker-compose.yml
 ├── Dockerfile
 ├── NetClient                        # Worker node
@@ -241,7 +278,9 @@ docker compose logs -f
 │   ├── test_file_processor.cpp      # Unit tests — 100% line coverage
 │   ├── test_thread_pool.cpp         # Unit tests — parametrized, FIFO ordering
 │   ├── test_worker_client.cpp       # Unit tests — thread count edge cases
-│   └── test_worker_integration.cpp  # Integration tests — real TCP end-to-end
+│   ├── test_worker_integration.cpp  # Integration tests — real TCP end-to-end
+│   ├── test_master_integration.cpp  # Integration tests — Master dispatch and recovery
+│   └── FakeWorker.hpp               # Scripted Worker for Master tests
 └── external
     ├── asio/                        # Standalone ASIO
     ├── httplib.h                    # cpp-httplib (header-only)

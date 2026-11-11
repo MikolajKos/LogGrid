@@ -78,3 +78,6 @@ MVP_JANUARY_2027.md
 DEV_NOTES.md
 GEMINI.md
 architecture_decisions.md
+# Python
+__pycache__/
+.venv/
