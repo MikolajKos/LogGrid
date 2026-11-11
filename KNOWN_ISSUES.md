@@ -24,6 +24,7 @@ Stan na 10 listopada 2026. Uwagi z przeglądów PR #45 i z pracy nad testami mas
 - [ ] **`maxResults` jest limitem na chunk po stronie workera.** Każdy chunk może odesłać do `maxResults` pełnych linii, a master zapisuje tylko pierwsze `maxResults` w całej sesji i resztę odrzuca. Przy 400 chunkach to do 4 mln przesłanych linii. Hipoteza, niezmierzona: sprawdzić czas sesji z `maxResults: 0`.
 - [ ] `FileProcessor` woła `tellg()` po każdej linii. Przy prostym przetwarzaniu linii to kilkukrotny narzut, więc pozycję lepiej liczyć z długości wczytanych danych.
 - [ ] `std::regex_search` po każdej linii przerabia około 64 MB/s na wątek, kilka razy wolniej niż zwykłe wyszukiwanie tekstu. Zniknie przy przejściu na statystyki telemetryczne.
+- [ ] **`bench/kill_worker.py` odczytuje stan klastra z tekstu logów mastera** (`"Hello message"`, `"Reclaimed task"`). Zmiana treści komunikatu, np. poprawka literówki „recived”, po cichu psuje skrypt: każdy przebieg z zabiciem staje się INVALID albo `wait_for_workers` kończy się limitem czasu. Kierunek: liczniki połączonych workerów, wykrytych awarii i odzyskanych zadań w `/api/status`, potrzebne i tak do metryk z kroku 4.
 - [ ] Worker liczy wątki z `hardware_concurrency()`, które przy limicie `cpus` kontenera widzi wszystkie rdzenie maszyny. Worker z limitem 2 CPU uruchamia 11 wątków i zgłasza 11 slotów, przez co pomiary skalowania są zniekształcone.
 
 ## Protokół i bezpieczeństwo

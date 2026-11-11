@@ -131,7 +131,7 @@ CI runs the test suites in the Release Docker image and in separate ASan/UBSan a
 
 ## Benchmarks
 
-`bench/kill_worker.py` checks task recovery on the Docker Compose cluster. It starts the cluster, runs a search, kills Workers with SIGKILL once a given fraction of chunks is done, and compares the result with `grep -c` on the same files. Each run is PASS, FAIL (wrong count or hung session) or INVALID (the kill missed the work), and is saved as one CSV row in `bench/results/`.
+`bench/kill_worker.py` checks task recovery on the Docker Compose cluster. It starts the cluster, runs a search, kills Workers with SIGKILL once a given fraction of chunks is done, and compares the result with `grep -c` on the same files. Each run is PASS, FAIL (wrong count, hung session or a master failure after the search started), INVALID (the kill did not test recovery) or ERROR (the cluster did not start), and is saved as one CSV row in `bench/results/`.
 
 ```bash
 # Run without a failure, then kills at 5/25/50/75/95% of chunks, 5 times
