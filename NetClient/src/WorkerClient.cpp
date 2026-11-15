@@ -1,3 +1,5 @@
+#include <charconv>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -8,14 +10,37 @@
 #include "FileProcessor.hpp"
 
 // Constructor with ThreadPool initialization
-WorkerClient::WorkerClient() 
-    : m_threadPool(CalculateThreadCount(std::thread::hardware_concurrency())) {}
+WorkerClient::WorkerClient()
+    : m_threadPool(CalculateThreadCount(GetThreadsEnv(), std::thread::hardware_concurrency())) {
+    std::cout << "[WORKER] Using " << m_threadPool.Size() << " threads\n";
+}
 
-size_t WorkerClient::CalculateThreadCount(size_t threadsAvailable) {
+const char* WorkerClient::GetThreadsEnv() {
+    return std::getenv("LOGGRID_WORKER_THREADS");
+}
+
+size_t WorkerClient::CalculateThreadCount(const char* envValue, size_t hardwareThreads) {
+    // Not set, empty or "0" means auto: use the hardware thread count below
+    if (envValue && *envValue != '\0') {
+        size_t parsed = 0;
+        const char* end = envValue + std::strlen(envValue);
+        auto [ptr, ec] = std::from_chars(envValue, end, parsed);
+
+        if (ec == std::errc{} && ptr == end && parsed <= kMaxThreads) {
+            // "0" (also "00") means auto: fall through to the hardware thread count
+            if (parsed > 0) {
+                return parsed;
+            }
+        }
+        else {
+            std::cout << "[WORKER] Invalid LOGGRID_WORKER_THREADS value: \"" << envValue
+                      << "\", using hardware thread count\n";
+        }
+    }
+
     // prevent CPU oversubscription (N-1 Rule)
-    if (threadsAvailable > 1) threadsAvailable -= 1;
-
-    return threadsAvailable == 0 ? 4 : threadsAvailable;
+    if (hardwareThreads > 1) --hardwareThreads;
+    return hardwareThreads == 0 ? 4 : hardwareThreads;
 }
 
 void WorkerClient::OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) {
