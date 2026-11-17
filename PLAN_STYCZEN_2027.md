@@ -48,7 +48,7 @@ odbiorca ← wyniki ← master ←───────────────�
 | Build obrazów | Release (`-O3`), wcześniej bez optymalizacji, około 8 razy wolniej |
 | Skrypt pomiarowy | `bench/kill_worker.py`: liczba workerów, liczba zabitych, limit CPU, wyniki w CSV |
 | Rozmiar chunka | Stała w kodzie, obecnie 5 MB |
-| Liczba wątków workera | Z `hardware_concurrency()`, nie uwzględnia limitu CPU kontenera |
+| Liczba wątków workera | Z `LOGGRID_WORKER_THREADS`, bez niej wątki maszyny − 1. Skrypt pomiarowy dopasowuje ją do limitu CPU |
 | Host mastera | Stała w kodzie workera, `master-node` |
 | Metryki | Brak eksportu |
 | Generator o stałym tempie i obserwator | Do zbudowania |
@@ -113,7 +113,7 @@ Heartbeat i limity czasu są potrzebne do wykrywania awarii maszyny lub sieci, b
 - [x] Obrazy budowane w trybie Release.
 - [x] Skrypt serii pomiarowej z zapisem do CSV (`bench/kill_worker.py`), z liczbą workerów i limitem CPU jako parametrami.
 - [ ] Rozmiar chunka, host i port ustawiane bez przebudowy obrazu.
-- [ ] Liczba wątków workera ustawiana z zewnątrz, zgodnie z limitem CPU kontenera.
+- [x] Liczba wątków workera ustawiana z zewnątrz, zgodnie z limitem CPU kontenera.
 - [ ] Wspólny format metryk ustalony z Jankiem.
 - [ ] Zapis czasu zadania, przepustowości oraz czasu wykrycia awarii i wznowienia pracy.
 

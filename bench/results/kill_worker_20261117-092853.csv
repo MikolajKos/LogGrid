@@ -1,0 +1,7 @@
+timestamp,commit,dataset,files,size_mb,workers,worker_cpus,worker_threads,kill_count,kill_at,killed_at_chunk,reclaimed,expected,found,chunks,time_s,ok,error
+2026-11-17T09:29:06,5697259,killtest,40,1511,2,2.0,2,0,,,,3998170,,,,"ERROR (CalledProcessError: Command '['docker', 'compose', 'up', '-d', '--scale', 'worker=2', '--build']' returned non-zero exit status 1.)","CalledProcessError: Command '['docker', 'compose', 'up', '-d', '--scale', 'worker=2', '--build']' returned non-zero exit status 1."
+2026-11-17T09:29:31,5697259,killtest,40,1511,2,2.0,2,1,0.5,160/320,1,3998170,3998170,320/320,17.6,PASS,
+2026-11-17T09:29:50,5697259,killtest,40,1511,2,2.0,2,0,,,0,3998170,3998170,320/320,12.22,PASS,
+2026-11-17T09:30:13,5697259,killtest,40,1511,2,2.0,2,1,0.5,161/320,1,3998170,3998170,320/320,17.39,PASS,
+2026-11-17T09:30:32,5697259,killtest,40,1511,2,2.0,2,0,,,0,3998170,3998170,320/320,12.52,PASS,
+2026-11-17T09:30:55,5697259,killtest,40,1511,2,2.0,2,1,0.5,160/320,1,3998170,3998170,320/320,18.24,PASS,

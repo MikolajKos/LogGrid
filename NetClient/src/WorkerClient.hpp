@@ -11,6 +11,7 @@ class WorkerClient : public olc::net::client_interface<LogSystem::LogSearchMsg> 
 public:
     WorkerClient();
     virtual ~WorkerClient() = default;
+    static constexpr size_t kMaxThreads = 256;
 
 protected:
     void OnConnectionResult(bool bConnected) override;
@@ -18,12 +19,13 @@ protected:
 
 public:
     bool ShouldDisconnect();
-    static size_t CalculateThreadCount(size_t threads);
+    static size_t CalculateThreadCount(const char* envValue, size_t hardwareThreads);
 private:
     void SendFoundLine(const LogSystem::LogSearchMsg msgType, const std::string& line = std::string(), const uint64_t searchId = 0);
     void SendHello();
     void SendTaskDone(LogSystem::ChunkResult& batch);
     olc::net::message<LogSystem::LogSearchMsg> SerializeBatch(LogSystem::ChunkResult& batch);
+    static const char* GetThreadsEnv();
 private:
     ThreadPool m_threadPool;
     std::atomic<bool> m_shouldDisconnect = false;

@@ -1,0 +1,4 @@
+timestamp,commit,dataset,files,size_mb,workers,worker_cpus,worker_threads,kill_count,kill_at,killed_at_chunk,reclaimed,expected,found,chunks,time_s,ok,error
+2026-11-17T09:32:30,5697259,killtest,40,1511,2,2.0,1,0,,,0,3998170,3998170,320/320,22.31,PASS,
+2026-11-17T09:32:58,5697259,killtest,40,1511,2,2.0,1,0,,,0,3998170,3998170,320/320,22.26,PASS,
+2026-11-17T09:33:26,5697259,killtest,40,1511,2,2.0,1,0,,,0,3998170,3998170,320/320,22.22,PASS,

@@ -27,5 +27,9 @@ services:
     tty: true # -it option
     # CPU limit per worker, e.g. LOGGRID_WORKER_CPUS=2; 0 means no limit
     cpus: ${LOGGRID_WORKER_CPUS:-0}
+    environment:
+      # Worker thread count; 0 = auto (hardware threads - 1). Auto does not see
+      # the cpus limit above, so with LOGGRID_WORKER_CPUS set this too, e.g. both to 2
+      - LOGGRID_WORKER_THREADS=${LOGGRID_WORKER_THREADS:-0}
     volumes:
       - /data/logs:/app/data:ro # read only

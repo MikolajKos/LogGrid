@@ -15,6 +15,7 @@ Usage (from the repository root):
     python3 bench/kill_worker.py                     # baseline + kills at 25/50/75%
     python3 bench/kill_worker.py --kill-at 0.5 --repeat 3
     python3 bench/kill_worker.py --workers 2 4 --kill-count 1 --worker-cpus 2
+    python3 bench/kill_worker.py --worker-cpus 2 --worker-threads 4   # 4 threads on 2 CPUs
 
 Results go to bench/results/kill_worker_<date>-<time>.csv, one file per series
 (or to the file given with --csv).
@@ -24,6 +25,7 @@ import argparse
 import csv
 import datetime
 import json
+import math
 import os
 import subprocess
 import time
@@ -297,7 +299,7 @@ def markdown_table(results):
 
 CSV_FIELDS = [
     "timestamp", "commit", "dataset", "files", "size_mb", "workers", "worker_cpus",
-    "kill_count", "kill_at", "killed_at_chunk",
+    "worker_threads", "kill_count", "kill_at", "killed_at_chunk",
     "reclaimed", "expected", "found", "chunks", "time_s", "ok", "error",
 ]
 
@@ -309,6 +311,12 @@ def append_csv(path, row):
     """
     path = Path(path)
     new_file = not path.exists()
+    if not new_file:
+        # Appending rows with other columns to an old file would shift the values
+        with path.open(newline="") as f:
+            header = next(csv.reader(f), [])
+        if header != CSV_FIELDS:
+            raise SystemExit(f"{path} has different columns; use a new --csv file")
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDS, extrasaction="ignore")
@@ -320,11 +328,13 @@ def append_csv(path, row):
 def environment(context, results):
     cpus = (f"limit {context['worker_cpus']:g} CPU na workera"
             if context["worker_cpus"] else "bez limitu CPU")
+    threads = (f"{context['worker_threads']} wątków na workera"
+               if context["worker_threads"] else "liczba wątków automatyczna")
     # Chunk count comes from the master, so the line stays true if CHUNK_SIZE changes
     chunks = next((r["chunks"].split("/")[1] for r in results if "chunks" in r), "?")
     return (f"Commit `{context['commit']}`, {context['files']} plików, "
             f"{context['size_mb']} MB, {chunks} chunków, docker compose na jednej maszynie, "
-            f"{cpus}, wzorzec `{KEYWORD}`, referencja `grep -r -c`.")
+            f"{cpus}, {threads}, wzorzec `{KEYWORD}`, referencja `grep -r -c`.")
 
 
 def main():
@@ -344,6 +354,9 @@ def main():
                         help="how many workers to kill at each kill point (default: 1)")
     parser.add_argument("--worker-cpus", type=float, default=0,
                         help="CPU limit per worker container, 0 = no limit (default: 0)")
+    parser.add_argument("--worker-threads", type=int,
+                        help="threads per worker (LOGGRID_WORKER_THREADS), 0 = auto; default: "
+                             "--worker-cpus rounded up, or 0 without a CPU limit")
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=180)
     parser.add_argument("--csv", help="CSV file for the results "
@@ -355,8 +368,16 @@ def main():
     if args.kill_at and too_small:
         parser.error(f"--kill-count {args.kill_count} needs more workers than {too_small}")
 
-    # Read by docker-compose.yml for every `docker compose up`
+    # Auto mode in the worker does not see the CPU limit, so match the threads to it
+    if args.worker_threads is None:
+        args.worker_threads = math.ceil(args.worker_cpus) if args.worker_cpus > 0 else 0
+    if not 0 <= args.worker_threads <= 256:  # WorkerClient::kMaxThreads
+        parser.error("--worker-threads must be from 0 to 256")
+
+    # Read by docker-compose.yml for every `docker compose up`; set here so a
+    # value exported in the shell cannot change the run without being recorded
     os.environ["LOGGRID_WORKER_CPUS"] = f"{args.worker_cpus:g}"
+    os.environ["LOGGRID_WORKER_THREADS"] = str(args.worker_threads)
 
     ensure_dataset(args.dataset, args.files, args.lines, timeout_s=600)
     expected = reference_count(args.dataset)
@@ -369,6 +390,7 @@ def main():
         "files": len(dataset_files(args.dataset)),
         "size_mb": round(dataset_size_mb(args.dataset)),
         "worker_cpus": args.worker_cpus,
+        "worker_threads": args.worker_threads,
     }
 
     csv_path = args.csv or (Path(__file__).parent / "results" /
