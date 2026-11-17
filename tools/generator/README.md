@@ -15,6 +15,21 @@ python generator/gen.py --dump --out ch60.csv          # whole channel, 1 copy
 
 Requirements: Python 3, `numpy`, `pandas` and `raw/ESA-Mission1.zip` (about 3.8 GB).
 
+## Data
+
+Download `ESA-Mission1.zip` from Zenodo (record [12528696](https://zenodo.org/records/12528696)) into `raw/`:
+
+```bash
+curl -L -o raw/ESA-Mission1.zip "https://zenodo.org/records/12528696/files/ESA-Mission1.zip?download=1"
+```
+
+Check the file after downloading:
+
+```bash
+shasum -a 256 raw/ESA-Mission1.zip
+# 8c81edb1e81af9084f38a3cc06fa06dbea73b504c99ce1b0fb92bda996b801a7  ESA-Mission1.zip
+```
+
 ## Parameters
 
 | Parameter | Default | What it does |
