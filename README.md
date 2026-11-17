@@ -93,6 +93,10 @@ git clone https://github.com/MikolajKos/LogGrid.git && cd LogGrid
 # 2. Spin up Master + Workers (2 by default; e.g. --scale worker=4 for more)
 docker compose up -d --build --scale worker=2
 
+# Optional: 2 CPUs and 2 threads per Worker. Without LOGGRID_WORKER_THREADS a Worker
+# uses its machine's logical CPUs - 1 and does not see the CPU limit
+# LOGGRID_WORKER_CPUS=2 LOGGRID_WORKER_THREADS=2 docker compose up -d --build --scale worker=2
+
 # 3. Trigger a search (Single file or entire directory)
 curl -X POST http://localhost:8080/api/search \
   -H "Content-Type: application/json" \
@@ -139,7 +143,12 @@ python3 bench/kill_worker.py --kill-at 0.05 0.25 0.5 0.75 0.95 --repeat 5
 
 # 4 Workers limited to 2 CPUs each, kill 2 of them halfway
 python3 bench/kill_worker.py --workers 4 --worker-cpus 2 --kill-count 2 --kill-at 0.5
+
+# 2 CPUs and 4 threads per Worker, runs without a failure only
+python3 bench/kill_worker.py --worker-cpus 2 --worker-threads 4 --kill-at
 ```
+
+With `--worker-cpus`, the script sets the Worker thread count to the CPU limit rounded up; `--worker-threads N` sets another value. Both are saved in every CSV row.
 
 Run it from the repository root. Test data comes from [CrazyPrinter API](https://github.com/MikolajKos/crazy-printer-api) and is generated on first use if the dataset directory does not exist. These runs check correctness on a single machine; they are not performance benchmarks.
 

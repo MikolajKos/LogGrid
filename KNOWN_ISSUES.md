@@ -25,7 +25,7 @@ Stan na 10 listopada 2026. Uwagi z przeglądów PR #45 i z pracy nad testami mas
 - [ ] `FileProcessor` woła `tellg()` po każdej linii. Przy prostym przetwarzaniu linii to kilkukrotny narzut, więc pozycję lepiej liczyć z długości wczytanych danych.
 - [ ] `std::regex_search` po każdej linii przerabia około 64 MB/s na wątek, kilka razy wolniej niż zwykłe wyszukiwanie tekstu. Zniknie przy przejściu na statystyki telemetryczne.
 - [ ] **`bench/kill_worker.py` odczytuje stan klastra z tekstu logów mastera** (`"Hello message"`, `"Reclaimed task"`). Zmiana treści komunikatu, np. poprawka literówki „recived”, po cichu psuje skrypt: każdy przebieg z zabiciem staje się INVALID albo `wait_for_workers` kończy się limitem czasu. Kierunek: liczniki połączonych workerów, wykrytych awarii i odzyskanych zadań w `/api/status`, potrzebne i tak do metryk z kroku 4.
-- [ ] Worker liczy wątki z `hardware_concurrency()`, które przy limicie `cpus` kontenera widzi wszystkie rdzenie maszyny. Worker z limitem 2 CPU uruchamia 11 wątków i zgłasza 11 slotów, przez co pomiary skalowania są zniekształcone.
+- [x] Worker liczy wątki z `hardware_concurrency()` − 1, które przy limicie `cpus` kontenera widzi wszystkie logiczne CPU maszyny. Na maszynie z 12 logicznymi CPU worker z limitem 2 CPU uruchamiał 11 wątków i zgłaszał 11 slotów, przez co pomiary skalowania były zniekształcone. Obejście w `ef94927`: zmienna `LOGGRID_WORKER_THREADS`, a `bench/kill_worker.py` ustawia ją zgodnie z `--worker-cpus`. Tryb automatyczny nadal nie widzi limitu.
 
 ## Protokół i bezpieczeństwo
 
