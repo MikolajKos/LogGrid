@@ -38,15 +38,46 @@ public:
             intPart = text.substr(0, dot);
             fracPart = text.substr(dot + 1);
 
-            // for example: 5. is invalid
+            // example: 5. is invalid
             if (fracPart.empty()) return std::nullopt;
+
         }
 
         if (fracPart.size() > static_cast<size_t>(scaleDigits)) {
             return std::nullopt;
         }
-        
-        return std::nullopt;
+
+        uint64_t fracValue = 0;
+        if (!fracPart.empty()) {
+            auto parsed = ParseDigits(fracPart);
+            if (!parsed) return std::nullopt;
+            fracValue = *parsed;
+        }
+
+        auto intValue = ParseDigits(intPart);
+
+        if (!intValue) return std::nullopt;
+
+        static constexpr uint64_t kMax = INT64_MAX;
+        const uint64_t scale = kPow10[scaleDigits];
+        const uint64_t fracScaled = fracValue * kPow10[scaleDigits - fracPart.size()];
+
+        if (*intValue > (kMax - fracScaled) / scale) return std::nullopt;
+
+        const int64_t result = static_cast<int64_t>(*intValue * scale + fracScaled);
+
+        return negative ? -result : result;
+    }
+
+    static std::optional<uint64_t> ParseDigits(std::string_view text) {
+        // unsigned, so from_chars will set error for '-', because we already read sign
+        uint64_t value = 0;
+        const char* end = text.data() + text.size();
+        auto [ptr, ec] = std::from_chars(text.data(), end, value);
+
+        if (ec != std::errc{} || ptr != end) return std::nullopt;
+
+        return value;
     }
 
     /**
