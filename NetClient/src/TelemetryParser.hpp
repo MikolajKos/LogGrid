@@ -7,13 +7,38 @@
 #include <optional>
 #include <string_view>
 
+/**
+ * @brief Parses telemetry CSV lines "id,timestamp,channel,value" into
+ *        fixed-point integers.
+ *
+ * The value is returned as value * 10^scaleDigits in an int64_t, so that
+ * values can be summed exactly as integers instead of as floating point.
+ * All functions are static, allocate nothing, and report every kind of
+ * invalid input the same way: std::nullopt.
+ */
 class TelemetryParser {
 public:
     /**
      * @brief Converts a decimal string to an integer scaled by 10^scaleDigits.
-     * "0.7188446", 7 -> 7188446;  "-112.23", 7 -> -1122300000
-     * @return std::nullopt if the text is not a valid number or has more
-     *         than scaleDigits digits after the dot.
+     *
+     * Examples with scaleDigits = 7:
+     *  - "0.7188446" -> 7188446
+     *  - "-112.23"   -> -1122300000 (the fraction is padded with zeros)
+     *  - "5"         -> 50000000
+     *
+     * Accepted format: optional '-', one or more digits, then optionally
+     * '.' followed by one to scaleDigits digits. Fractions longer than
+     * scaleDigits are rejected, not rounded.
+     *
+     * The accepted range is symmetric: [-INT64_MAX, INT64_MAX] after scaling.
+     * INT64_MIN is not supported.
+     *
+     * @param text        Decimal number, no whitespace.
+     * @param scaleDigits Number of fraction digits kept, 0 to 18.
+     * @return The scaled value, or std::nullopt if scaleDigits is out of range,
+     *         the text is not in the accepted format (e.g. "5.", ".5", "+5",
+     *         "1e3"), has more than scaleDigits fraction digits, or the scaled
+     *         value does not fit in int64_t.
      */
     static std::optional<int64_t> ParseScaledValue(std::string_view text, int scaleDigits) {
         // 10^scaleDigits must be in kPow10, otherwise the lookups below go out of bounds
@@ -69,6 +94,16 @@ public:
         return negative ? -result : result;
     }
 
+    /**
+     * @brief Parses a non-empty string of decimal digits as uint64_t.
+     *
+     * Helper for ParseScaledValue, used for the integer and the fraction part
+     * after the sign has been removed. The unsigned target type makes
+     * std::from_chars reject a second '-' (e.g. "--5").
+     *
+     * @return The value, or std::nullopt if the text is empty, contains
+     *         anything other than digits, or does not fit in uint64_t.
+     */
     static std::optional<uint64_t> ParseDigits(std::string_view text) {
         // unsigned, so from_chars will set error for '-', because we already read sign
         uint64_t value = 0;
@@ -81,9 +116,15 @@ public:
     }
 
     /**
-     * @brief Extracts the value field from "id,timestamp,channel,value"
-     *        and converts it with ParseScaledValue.
-     * @return std::nullopt if the line does not have exactly 4 fields or the value is invalid.
+     * @brief Parses one telemetry line "id,timestamp,channel,value".
+     *
+     * Takes the field at kValueColumn with GetField and converts it with
+     * ParseScaledValue. The other fields are not validated.
+     *
+     * @param line        One CSV line without the trailing newline.
+     * @param scaleDigits Passed to ParseScaledValue.
+     * @return The scaled value, or std::nullopt if the line does not have
+     *         exactly kFieldCount fields or the value is invalid.
      */
     static std::optional<int64_t> ParseLine(std::string_view line, int scaleDigits) {
         auto value = GetField(line, kValueColumn, kFieldCount);
@@ -93,6 +134,18 @@ public:
         return ParseScaledValue(*value, scaleDigits);
     }
 
+    /**
+     * @brief Returns one field of a comma-separated row without copying.
+     *
+     * The row must have exactly fieldCount fields. Quoting and escaped commas
+     * are not supported. Empty fields are allowed and returned as an empty view.
+     *
+     * @param row        CSV row without the trailing newline.
+     * @param column     Zero-based index of the field to return.
+     * @param fieldCount Exact number of fields the row must have.
+     * @return A view into row, or std::nullopt if column >= fieldCount or the
+     *         row has a different number of fields.
+     */
     static std::optional<std::string_view> GetField(std::string_view row, size_t column, size_t fieldCount) {
         if (column >= fieldCount) {
             return std::nullopt;
@@ -122,8 +175,12 @@ public:
     }
 
 public:
+    /// Number of fields in a telemetry line: id, timestamp, channel, value.
     static constexpr size_t kFieldCount = 4;
+    /// Zero-based index of the value field.
     static constexpr size_t kValueColumn = 3;
+
+    /// Powers of ten used for scaling; its size limits scaleDigits to 0-18.
 
     static constexpr int64_t kPow10[] = {
         1, 10, 100, 1'000, 10'000, 100'000, 1'000'000, 10'000'000,
