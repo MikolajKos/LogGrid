@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "TelemetryStats.hpp"
+
 #include "olc_net.hpp"
 
 namespace LogSystem {
@@ -21,19 +23,16 @@ namespace LogSystem {
     struct TaskPayload {
         uint64_t search_id;
         uint64_t task_id;
-        uint64_t max_results;
         uint64_t start_offset;
         uint64_t end_offset;
-        char keyword[64];       // Search criteria
         char filename[256];
     };
     
     struct ChunkResult {
-        std::vector<std::string> lines;
         uint64_t search_id{0};
         uint64_t task_id{0};
-        uint64_t total_matches{0};
-        uint32_t lines_found{0};
+        
+        TelemetryStats stats{};
     };
     
     struct HelloMessage {
