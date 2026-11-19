@@ -4,22 +4,24 @@ The script takes one telemetry channel from ESA-ADB (Mission 1, `channel_60`) an
 
 ## Usage
 
-Run from the `esa-adb/` directory, because the data path is relative (`raw/ESA-Mission1.zip`):
+Run from the repository root. By default the script reads `raw/ESA-Mission1.zip` relative to the current directory; pass `--input` to use an archive stored anywhere else:
 
 ```bash
-python generator/gen.py --size 1G --out data.csv       # ≥ 1 GiB: 2 copies, 1.29 GB
-python generator/gen.py --copies 5 --out data5.csv     # exactly 5 full copies
-python generator/gen.py --rows 1000 --out sample.csv   # first 1000 lines
-python generator/gen.py --dump --out ch60.csv          # whole channel, 1 copy
+python tools/generator/gen.py --size 1G --out data.csv       # ≥ 1 GiB: 2 copies, 1.29 GB
+python tools/generator/gen.py --copies 5 --out data5.csv     # exactly 5 full copies
+python tools/generator/gen.py --rows 1000 --out sample.csv   # first 1000 lines
+python tools/generator/gen.py --dump --out ch60.csv          # whole channel, 1 copy
+python tools/generator/gen.py --input ~/data/ESA-Mission1.zip --rows 1000 --out sample.csv
 ```
 
-Requirements: Python 3, `numpy`, `pandas` and `raw/ESA-Mission1.zip` (about 3.8 GB).
+Requirements: Python 3, `numpy`, `pandas` and `ESA-Mission1.zip` (about 3.8 GB, see [Data](#data)).
 
 ## Data
 
-Download `ESA-Mission1.zip` from Zenodo (record [12528696](https://zenodo.org/records/12528696)) into `raw/`:
+Download `ESA-Mission1.zip` from Zenodo (record [12528696](https://zenodo.org/records/12528696)). The commands below save it to `raw/`, the default location; if you keep it elsewhere, pass that path with `--input`:
 
 ```bash
+mkdir -p raw
 curl -L -o raw/ESA-Mission1.zip "https://zenodo.org/records/12528696/files/ESA-Mission1.zip?download=1"
 ```
 
@@ -35,6 +37,7 @@ shasum -a 256 raw/ESA-Mission1.zip
 | Parameter | Default | What it does |
 |---|---|---|
 | `--size` | `1G` | Target file size. Accepts `K`/`M`/`G` in binary units (1G = 1024³ B) or a plain number of bytes. |
+| `--input` | `raw/ESA-Mission1.zip` | Path to the ESA-Mission1 archive. A relative path is resolved against the current directory. |
 | `--out` | `data.csv` | Output file. |
 | `--copies N` | – | Writes exactly N full copies of the channel. Ignores `--size`. Expected results are easy to check: count = N · 14,639,410, min and max are the same as for one copy, sum ≈ N · sum of one copy (floating-point rounding, so compare with the spec tolerance). |
 | `--rows N` | – | Writes only the first N lines of one copy, without adding more copies. Ignores `--size` and `--copies`. |
