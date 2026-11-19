@@ -37,3 +37,19 @@ def classify(line):
     if not math.isfinite(number):
         return "nan", None
     return "ok", number
+
+def valid_values(paths, stats):
+    for path in paths:
+        with open(path, "rb") as f:
+            for raw in f:
+                if raw.endswith(b"\n"):
+                    category, value = classify(raw[:-1])
+                else:
+                    category, value = "malformed", None  # truncated last line
+                if category == "ok":
+                    stats["count"] += 1
+                    stats["min"] = value if stats["min"] is None else min(stats["min"], value)
+                    stats["max"] = value if stats["max"] is None else max(stats["max"], value)
+                    yield value
+                elif category != "ignore":
+                    stats["skipped_" + category] += 1
