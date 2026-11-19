@@ -9,6 +9,8 @@
 #include "olc_net.hpp"
 
 namespace LogSystem {
+    inline constexpr int kValueScaleDigits = 10;   // max fraction digits of float32 values in [0.01, 1)
+
     enum class LogSearchMsg {
         Worker_Hello,           // Worker is ready
         Server_SearchTask,      // Master sends TaskPayload structure
