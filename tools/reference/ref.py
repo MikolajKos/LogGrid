@@ -53,3 +53,12 @@ def valid_values(paths, stats):
                     yield value
                 elif category != "ignore":
                     stats["skipped_" + category] += 1
+
+def input_files(arg):
+    path = Path(arg)
+    if not path.is_dir():
+        return [path]
+    files = sorted(path.glob("*.csv"))
+    if not files:
+        sys.exit(f"error: no *.csv files in {path}")
+    return files
