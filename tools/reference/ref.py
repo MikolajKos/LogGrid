@@ -1,5 +1,16 @@
+"""LogGrid reference program: count, sum, min, max and bad-line counters.
+
+Its output is the ground truth for LogGrid and Flink.
+Usage: python ref.py <file.csv | directory>
+A directory means all its *.csv files, sorted by name, without subdirectories.
+Output: one JSON line. min and max are null when no line is ok.
+"""
+
 import json, math, sys, re
 from pathlib import Path
+
+#line format: id,timestamp,channel,value
+#everything not listed here is classified as malformed
 
 ID = re.compile(r"[0-9]+")
 TIMESTAMP = re.compile(r"-?[0-9]+")
@@ -13,6 +24,9 @@ INT64_MIN = -(2**63)
 INT64_MAX = 2**63 - 1
 
 def classify(line):
+    """Return (category, value) for one line without its trailing \\n.
+    The order of checks is the spec's rule order: the first match wins.
+    """
     if line == b"":
         return "ignore", None
     if not line.isascii():
@@ -39,13 +53,16 @@ def classify(line):
     return "ok", number
 
 def valid_values(paths, stats):
+    """Yield every ok value and update stats in place.
+    stats is complete only after the generator is exhausted.
+    """
     for path in paths:
         with open(path, "rb") as f:
             for raw in f:
                 if raw.endswith(b"\n"):
                     category, value = classify(raw[:-1])
                 else:
-                    category, value = "malformed", None  # truncated last line
+                    category, value = "malformed", None
                 if category == "ok":
                     stats["count"] += 1
                     stats["min"] = value if stats["min"] is None else min(stats["min"], value)
@@ -66,7 +83,7 @@ def input_files(arg):
 def main():
     if len(sys.argv) != 2:
         sys.exit("usage: python ref.py <file.csv | directory>")
-    if hasattr(sys, "set_int_max_str_digits"):  # Python 3.11+ limits int(str) length
+    if hasattr(sys, "set_int_max_str_digits"):
         sys.set_int_max_str_digits(0)
     stats = {"count": 0, "sum": 0.0, "min": None, "max": None,
              "skipped_empty": 0, "skipped_nan": 0, "skipped_malformed": 0}
