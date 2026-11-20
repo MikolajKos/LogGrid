@@ -62,3 +62,16 @@ def input_files(arg):
     if not files:
         sys.exit(f"error: no *.csv files in {path}")
     return files
+
+def main():
+    if len(sys.argv) != 2:
+        sys.exit("usage: python ref.py <file.csv | directory>")
+    if hasattr(sys, "set_int_max_str_digits"):  # Python 3.11+ limits int(str) length
+        sys.set_int_max_str_digits(0)
+    stats = {"count": 0, "sum": 0.0, "min": None, "max": None,
+             "skipped_empty": 0, "skipped_nan": 0, "skipped_malformed": 0}
+    stats["sum"] = math.fsum(valid_values(input_files(sys.argv[1]), stats))
+    print(json.dumps(stats))
+
+if __name__ == "__main__":
+    main()
