@@ -1,3 +1,4 @@
+#include "LogSearchCommon.hpp"
 #include "SearchController.hpp"
 
 using Status = httplib::StatusCode;
@@ -10,13 +11,11 @@ void SearchController::HandlePostSearch(const httplib::Request& req, httplib::Re
         auto body = nlohmann::json::parse(req.body);
 
         // Populate config
-        config.max_results = body.value("maxResults", config.max_results); // Has default value
         config.output_dir = body.value("outputDir", config.output_dir);
 
         std::string path = body.at("path").get<std::string>();
-        std::string keyword = body.at("keyword").get<std::string>();
-
-        uint64_t searchId = m_service.StartSearch(path, keyword, config);
+        
+        uint64_t searchId = m_service.StartSearch(path, config);
 
         nlohmann::json response = { {"searchId", searchId} };
         res.set_content(response.dump(), "application/json");
@@ -39,6 +38,48 @@ void SearchController::HandlePostSearch(const httplib::Request& req, httplib::Re
     }
 }
 
+namespace {
+    // 10^digits as an integer, computed at compile time
+    constexpr int64_t Pow10(int digits) {
+        int64_t result = 1;
+        for (int i = 0; i < digits; ++i) {
+            result *= 10;
+        }
+        return result;
+    }
+
+    constexpr int64_t kValueScale = Pow(LogSystem::kValueScaleDigits);
+
+    /**
+     * @brief Converts merged telemetry statistics to the JSON part of the status response.
+     *
+     * sum, min and max stay scaled integers (value * scale), so a client can compare them exactly.
+     * min, max and mean are present only when at least one value was counted; mean is left out
+     * after an overflow, because sum is then not valid.
+     */
+    nlohmann::json StatsToJson(const LogSystem::TelemetryStats& stats) {
+        nlohmann::json json = {
+            { "count",    stats.count },
+            { "errors",   stats.errors },
+            { "sum",      stats.sum },
+            { "scale",    kValueScale },
+            { "overflow", stats.overflow }
+        };
+
+        if (stats.count > 0) {
+            json["min"] = stats.min;
+            json["max"] = stats.max;
+
+            if (!stats.overflow) {
+                json["mean"] = static_cast<double>(stats.sum) / static_cast<double>(stats.count)
+                               / static_cast<double>(kValueScale);
+            }
+        }
+
+        return json;
+    }
+}
+
 void SearchController::HandleGetSearch(const httplib::Request& req, httplib::Response& res) {
     uint64_t sessionId;
 
@@ -56,9 +97,8 @@ void SearchController::HandleGetSearch(const httplib::Request& req, httplib::Res
                 { "state", session.state == SearchState::Running ? "Running" : "Done" },
                 { "chunksDone", session.chunks_done },
                 { "chunksTotal", session.chunks_total },
-                { "linesCount", session.lines_found },
-                { "totalMatches", session.total_matches },
-                { "scanErrors", session.scan_errors }
+                { "scanErrors", session.scan_errors },
+                { "stats", StatsToJson(session.stats) }
             };
 
             res.set_content(response.dump(), "application/json");
