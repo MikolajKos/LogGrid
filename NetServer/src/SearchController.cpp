@@ -48,7 +48,7 @@ namespace {
         return result;
     }
 
-    constexpr int64_t kValueScale = Pow(LogSystem::kValueScaleDigits);
+    constexpr int64_t kValueScale = Pow10(LogSystem::kValueScaleDigits);
 
     /**
      * @brief Converts merged telemetry statistics to the JSON part of the status response.

@@ -4,9 +4,7 @@
 #include <gtest/gtest.h>
 #include <optional>
 
-// Line in the "id,timestamp,channel,value" format, written by hand for the
-// tests, not copied from the dataset.
-static constexpr std::string_view kSampleLine = "1,2000-01-01T00:00:00,channel_1,0.7188446";
+static constexpr std::string_view kSampleLine = "1,946684823847,channel_60,0.7188446";
 
 TEST(TelemetryParserTest, ParsesValidValues) {
     EXPECT_EQ(TelemetryParser::ParseScaledValue("0.7188446", 7), 7188446);

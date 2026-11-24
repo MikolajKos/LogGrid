@@ -1,36 +1,81 @@
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
-#include <memory>
 #include <string>
 
 #include "FileProcessor.hpp"
 
-TEST(FileProcessorTest, HandlesMissingFileGracefully) {
-    LogSystem::TaskPayload dummyTask = {}; 
+namespace {
+    // Expected values below are written for this scale
+    static_assert(LogSystem::kValueScaleDigits == 10, "update the expected scaled values");
 
-    std::string dummyFilePath = "absolutely/random/filepath/good_luck_finding_it.txt";
-    std::string dummyKeyword = "super mega dangerous error";
+    constexpr int64_t kTenth = 1'000'000'000;   // 0.1 scaled by 10^10
 
-    strncpy(dummyTask.filename, dummyFilePath.c_str(), sizeof(dummyTask.filename) - 1);
-    dummyTask.filename[sizeof(dummyTask.filename) - 1] = '\0';
-    
-    strncpy(dummyTask.keyword, dummyKeyword.c_str(), sizeof(dummyTask.keyword) - 1);
-    dummyTask.keyword[sizeof(dummyTask.keyword) - 1] = '\0';
+    // 10-byte telemetry lines: "id,timestamp,channel,value\n"
+    const std::string kLine1 = "1,0,c,0.1\n";   // bytes 0..9
+    const std::string kLine2 = "2,0,c,0.2\n";   // bytes 10..19
+    const std::string kLine3 = "3,0,c,0.3\n";   // bytes 20..29
+    const std::string kThreeLines = kLine1 + kLine2 + kLine3;
 
-    dummyTask.start_offset = 0;
-    dummyTask.end_offset = 1000;
-    dummyTask.search_id = 1;
-    dummyTask.task_id = 1;
-    dummyTask.max_results = 10000; 
+    const std::string kTestFile = "test_file.log";
 
-    auto result = FileProcessor::SearchTask(dummyTask, dummyTask.max_results);
+    LogSystem::TaskPayload MakeTask(const std::string& filename, uint64_t start, uint64_t end) {
+        LogSystem::TaskPayload task{};
+        std::strncpy(task.filename, filename.c_str(), sizeof(task.filename) - 1);
+        task.start_offset = start;
+        task.end_offset = end;
+        task.search_id = 1;
+        task.task_id = 1;
+        return task;
+    }
 
-    EXPECT_TRUE(result.lines.empty());
-    EXPECT_EQ(result.lines_found, 0);
-    EXPECT_EQ(result.total_matches, 0);
+    void WriteTestFile(const std::string& content) {
+        std::ofstream file(kTestFile, std::ios::binary);
+        file << content;
+    }
 }
 
+// Known limitation (KNOWN_ISSUES.md): a file the worker cannot open gives an empty result
+TEST(FileProcessorTest, MissingFileGivesEmptyResult) {
+    auto result = FileProcessor::ProcessChunk(
+        MakeTask("absolutely/random/filepath/good_luck_finding_it.txt", 0, 1000));
+
+    EXPECT_EQ(result.stats.count, 0u);
+    EXPECT_EQ(result.stats.errors, 0u);
+}
+
+TEST(FileProcessorTest, StandardFileStats) {
+    WriteTestFile(kThreeLines);
+
+    auto result = FileProcessor::ProcessChunk(MakeTask(kTestFile, 0, 1000));
+
+    EXPECT_EQ(result.stats.count, 3u);
+    EXPECT_EQ(result.stats.errors, 0u);
+    EXPECT_EQ(result.stats.sum, 6 * kTenth);
+    EXPECT_EQ(result.stats.min, 1 * kTenth);
+    EXPECT_EQ(result.stats.max, 3 * kTenth);
+    EXPECT_FALSE(result.stats.overflow);
+
+    std::filesystem::remove(kTestFile);
+}
+
+// Splitting the file at any byte must count every line in exactly one of the two chunks
+TEST(FileProcessorTest, EveryLineCountedOnceForAnySplit) {
+    WriteTestFile(kThreeLines);
+    const uint64_t size = kThreeLines.size();
+
+    for (uint64_t split = 1; split < size; ++split) {
+        auto first = FileProcessor::ProcessChunk(MakeTask(kTestFile, 0, split));
+        auto second = FileProcessor::ProcessChunk(MakeTask(kTestFile, split, size));
+
+        EXPECT_EQ(first.stats.count + second.stats.count, 3u) << "split at byte " << split;
+        EXPECT_EQ(first.stats.sum + second.stats.sum, 6 * kTenth) << "split at byte " << split;
+        EXPECT_EQ(first.stats.errors + second.stats.errors, 0u) << "split at byte " << split;
+    }
+
+    std::filesystem::remove(kTestFile);
+}
 
 // =====================================================================
 
@@ -39,141 +84,61 @@ struct FileTestCase {
     std::string fileContent;
     uint64_t startOffset;
     uint64_t endOffset;
-    std::string keyword;
-    int expectedMatchCount;
+    uint64_t expectedCount;
+    uint64_t expectedErrors;
+    int64_t expectedSum;
 };
 
 class FileProcessorParamTest : public ::testing::TestWithParam<FileTestCase> {
 protected:
     void SetUp() override {
-        std::ofstream file;
-        file.open("test_file.log");
-        
-        file << GetParam().fileContent;
-
-        file.close();
+        WriteTestFile(GetParam().fileContent);
     }
 
     void TearDown() override {
-        std::filesystem::remove("test_file.log");
+        std::filesystem::remove(kTestFile);
     }
 };
 
-TEST_P(FileProcessorParamTest, FindLinesInChunksTest) {
-    // Create Search Task
-    LogSystem::TaskPayload dummyTask = {};
-    
-    dummyTask.start_offset = GetParam().startOffset;
-    dummyTask.end_offset = GetParam().endOffset;
+TEST_P(FileProcessorParamTest, ComputesStatsForChunk) {
+    auto result = FileProcessor::ProcessChunk(
+        MakeTask(kTestFile, GetParam().startOffset, GetParam().endOffset));
 
-    std::string filename = "test_file.log";
-    std::string keyword = GetParam().keyword;
-
-    strncpy(dummyTask.filename, filename.c_str(), sizeof(dummyTask.filename) - 1);
-    dummyTask.filename[sizeof(dummyTask.filename) - 1] = '\0';
-    
-    strncpy(dummyTask.keyword, keyword.c_str(), sizeof(dummyTask.keyword) - 1);
-    dummyTask.keyword[sizeof(dummyTask.keyword) - 1] = '\0';
-
-    dummyTask.search_id = 1;
-    dummyTask.task_id = 1;
-    dummyTask.max_results = 10000;
-
-
-    auto result = FileProcessor::SearchTask(dummyTask, dummyTask.max_results);
-
-    EXPECT_EQ(result.total_matches, GetParam().expectedMatchCount);
-    EXPECT_EQ(result.lines_found, GetParam().expectedMatchCount);
-    EXPECT_EQ(result.lines.size(), GetParam().expectedMatchCount);
+    EXPECT_EQ(result.stats.count, GetParam().expectedCount);
+    EXPECT_EQ(result.stats.errors, GetParam().expectedErrors);
+    EXPECT_EQ(result.stats.sum, GetParam().expectedSum);
 }
-
 
 INSTANTIATE_TEST_SUITE_P(
     FileChunkingEdgeCases,
     FileProcessorParamTest,
     ::testing::Values(
-        // 1. Standard file
-        FileTestCase{
-            "StandardFile", 
-            "INFO start\nERROR first\nINFO middle\nERROR second\n", 
-            0, 1000, "ERROR", 2
-        },
+        // Start offset right after '\n': the chunk starts with a whole line
+        FileTestCase{ "PerfectStartOffset", kLine1 + kLine2, 10, 1000, 1, 0, 2 * kTenth },
 
-        // 2. Start offset hits exactly after \n
-        FileTestCase{
-            "PerfectStartOffset", 
-            "LINE 1\nERROR should be found\n", 
-            7, 1000, "ERROR", 1
-        },
+        // Start offset inside a line: that line belongs to the previous chunk and is skipped
+        FileTestCase{ "StartOffsetInsideLine", kThreeLines, 11, 1000, 1, 0, 3 * kTenth },
 
-        // 3. Start offset hits inside the first word
-        FileTestCase{
-            "CutFirstLetterOfKeyword", 
-            "LINE 1\nERROR should be skipped\nERROR but this stays\n", 
-            8, 1000, "ERROR", 1
-        },
+        // End offset inside a line: the line that starts before it is read to the end
+        FileTestCase{ "EndOffsetInTheMiddleOfLine", kThreeLines, 0, 12, 2, 0, 3 * kTenth },
 
-        // 4. End offset ends mid-line, std::getline should read until \n anyway
-        FileTestCase{
-            "EndOffsetInTheMiddleOfLine", 
-            "ERROR 1\nERROR 2\nINFO 3\n", 
-            0, 12, "ERROR", 2
-        },
+        // A line starting exactly at end_offset belongs to the next chunk
+        FileTestCase{ "LineAtBoundaryNotReadByPreviousChunk", kThreeLines, 0, 10, 1, 0, 1 * kTenth },
+        FileTestCase{ "LineAtBoundaryReadByNextChunk", kThreeLines, 10, 30, 2, 0, 5 * kTenth },
 
-        // 5. CRLF (\r\n) handling check
-        FileTestCase{
-            "WindowsCRLFHandling", 
-            "INFO\r\nERROR\r\nINFO\r\n", 
-            0, 1000, "ERROR$", 1
-        },
+        // '\r' of CRLF line endings is removed before parsing
+        FileTestCase{ "WindowsCRLFHandling", "1,0,c,0.1\r\n2,0,c,0.2\r\n", 0, 1000, 2, 0, 3 * kTenth },
 
-        // 6. No \n at EOF
-        FileTestCase{
-            "NoTrailingNewline", 
-            "INFO 1\nINFO 2\nERROR at the very end", 
-            0, 1000, "ERROR", 1
-        },
+        // The last line without '\n' is still read
+        FileTestCase{ "NoTrailingNewline", kLine1 + "2,0,c,0.2", 0, 1000, 2, 0, 3 * kTenth },
 
-        // 7. Empty file check
-        FileTestCase{
-            "EmptyFile", 
-            "", 
-            0, 1000, "ERROR", 0
-        },
+        // Lines the parser rejects are counted in errors, including an empty line
+        FileTestCase{ "InvalidLinesCountedAsErrors",
+                      kLine1 + "garbage\n" + "4,0,c,abc\n" + "\n" + kLine2, 0, 1000, 2, 3, 3 * kTenth },
 
-        // 8. Offset way beyond file size
-        FileTestCase{
-            "OffsetOutOfBounds", 
-            "ERROR line\n", 
-            5000, 6000, "ERROR", 0
-        },
+        FileTestCase{ "EmptyFile", "", 0, 1000, 0, 0, 0 },
 
-        // 9. Regex functionality check
-        FileTestCase{
-            "RegexAdvancedPattern", 
-            "timestamp [ERR-123] db crash\ntimestamp [INFO-123] ok\ntimestamp [ERR-999] memory\n", 
-            0, 1000, "\\[ERR-\\d+\\]", 2
-        },
-
-        // 10. Invalid regex check
-        FileTestCase{
-            "InvalidRegex",
-            "", 0, 0,
-            "[invalid",
-            0
-        },
-
-        FileTestCase{
-            "LineAtBoundaryNotReadByPreviousChunk",
-            "aaaa\nMATCH\nbbbb\n",
-            0, 5, "MATCH", 0
-        },
-
-        FileTestCase{
-            "LineAtBoundaryReadByNextChunk",
-            "aaaa\nMATCH\nbbbb\n",
-            5, 16, "MATCH", 1
-        }
+        FileTestCase{ "OffsetOutOfBounds", kLine1, 5000, 6000, 0, 0, 0 }
     ),
     // Format test names for the console output
     [](const ::testing::TestParamInfo<FileTestCase>& info) {

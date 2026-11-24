@@ -4,6 +4,7 @@ add_executable(LogGridTests
     test_file_processor.cpp
     test_worker_client.cpp
     test_telemetry_parser.cpp
+    test_telemetry_stats.cpp
 
     ${CMAKE_SOURCE_DIR}/NetClient/src/WorkerClient.cpp
 )
