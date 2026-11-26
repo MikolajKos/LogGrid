@@ -43,3 +43,102 @@ INSTANTIATE_TEST_SUITE_P(
         return info.param.name;
     }
 );
+
+TEST(TelemetryStatsTest, AddErrorCountsOnlyErrors) {
+    LogSystem::TelemetryStats stats{};
+    stats.AddError();
+    stats.AddError();
+
+    EXPECT_EQ(stats.errors, 2u);
+    EXPECT_EQ(stats.count, 0u);
+    EXPECT_EQ(stats.sum, 0);
+}
+
+TEST(TelemetryStatsTest, AddSetsOverflowAbove) {
+    LogSystem::TelemetryStats stats{};
+    stats.sum = INT64_MAX;
+    stats.Add(1);
+
+    EXPECT_EQ(stats.count, 1u);
+    EXPECT_TRUE(stats.overflow);
+}
+
+TEST(TelemetryStatsTest, AddSetsOverflowBelow) {
+    LogSystem::TelemetryStats stats{};
+    stats.sum = INT64_MIN;
+    stats.Add(-1);
+
+    EXPECT_EQ(stats.count, 1u);
+    EXPECT_TRUE(stats.overflow);
+}
+
+TEST(TelemetryStatsTest, MergeCombinesTwoResults) {
+    LogSystem::TelemetryStats statsA;
+    statsA.Add(10);
+    statsA.Add(20);
+
+    LogSystem::TelemetryStats statsB;
+    statsB.Add(5);
+    statsB.AddError();
+
+    statsA.Merge(statsB);
+
+    EXPECT_EQ(statsA.count, 3u);
+    EXPECT_EQ(statsA.sum, 35);
+    EXPECT_EQ(statsA.errors, 1u);
+    EXPECT_EQ(statsA.min, 5);
+    EXPECT_EQ(statsA.max, 20);
+}
+TEST(TelemetryStatsTest, MergeWithEmptyKeepsValues) {
+    LogSystem::TelemetryStats statsA;
+    statsA.Add(10);
+
+    LogSystem::TelemetryStats statsB;   // empty: count == 0, min/max at initial values
+
+    statsA.Merge(statsB);
+
+    EXPECT_EQ(statsA.count, 1u);
+    EXPECT_EQ(statsA.errors, 0u);
+    EXPECT_EQ(statsA.sum, 10);
+    EXPECT_EQ(statsA.min, 10);
+    EXPECT_EQ(statsA.max, 10);
+    EXPECT_FALSE(statsA.overflow);
+}
+
+TEST(TelemetryStatsTest, MergeOfEmptyKeepsInitialMinMax) {
+    LogSystem::TelemetryStats statsA;
+    LogSystem::TelemetryStats statsB;
+
+    statsA.Merge(statsB);
+
+    EXPECT_EQ(statsA.count, 0u);
+    EXPECT_EQ(statsA.sum, 0);
+    EXPECT_EQ(statsA.min, INT64_MAX);
+    EXPECT_EQ(statsA.max, INT64_MIN);
+    EXPECT_FALSE(statsA.overflow);
+}
+
+TEST(TelemetryStatsTest, MergeCarriesOverflow) {
+    LogSystem::TelemetryStats statsA;
+    statsA.Add(10);
+
+    LogSystem::TelemetryStats statsB;
+    statsB.overflow = true;             // sum of B already overflowed in its chunk
+
+    statsA.Merge(statsB);
+
+    EXPECT_TRUE(statsA.overflow);
+}
+
+TEST(TelemetryStatsTest, MergeSetsOverflowOnSum) {
+    // Neither result has overflowed on its own, but their sum does not fit in int64_t
+    LogSystem::TelemetryStats statsA;
+    statsA.sum = INT64_MAX;
+
+    LogSystem::TelemetryStats statsB;
+    statsB.sum = 1;
+
+    statsA.Merge(statsB);
+
+    EXPECT_TRUE(statsA.overflow);
+}
