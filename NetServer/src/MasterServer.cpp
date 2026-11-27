@@ -388,7 +388,8 @@ void MasterServer::OnMessage(std::shared_ptr<olc::net::connection<LogSystem::Log
                     std::cout << "[MASTER] Aggregation error: " << e.what() << "\n";
                 }
                 
-                // The chunk is counted as done even if the merge above failed (see KNOWN_ISSUES.md)
+                // AggregateTaskResult throws only when the session does not exist; this block
+                // then skips the chunk too, so the stats and chunks_done stay consistent
                 bool searchComplete = false;
                 {
                     std::lock_guard<std::mutex> lock(m_stateMutex);
