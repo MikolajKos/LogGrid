@@ -9,6 +9,10 @@
 #include <iostream>
 #include <string>
 
+// The parser's power table must give the same scale as the rest of the system
+static_assert(TelemetryParser::kPow10[LogSystem::kValueScaleDigits] == LogSystem::kValueScale,
+              "TelemetryParser::kPow10 does not match LogSystem::kValueScale");
+
 class FileProcessor {
 public:
     static LogSystem::ChunkResult ProcessChunk(const LogSystem::TaskPayload& task) {

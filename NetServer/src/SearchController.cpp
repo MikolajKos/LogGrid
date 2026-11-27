@@ -39,17 +39,6 @@ void SearchController::HandlePostSearch(const httplib::Request& req, httplib::Re
 }
 
 namespace {
-    // 10^digits as an integer, computed at compile time
-    constexpr int64_t Pow10(int digits) {
-        int64_t result = 1;
-        for (int i = 0; i < digits; ++i) {
-            result *= 10;
-        }
-        return result;
-    }
-
-    constexpr int64_t kValueScale = Pow10(LogSystem::kValueScaleDigits);
-
     /**
      * @brief Converts merged telemetry statistics to the JSON part of the status response.
      *
@@ -61,7 +50,7 @@ namespace {
         nlohmann::json json = {
             { "count",    stats.count },
             { "errors",   stats.errors },
-            { "scale",    kValueScale },
+            { "scale",    LogSystem::kValueScale },
             { "overflow", stats.overflow }
         };
 
@@ -75,7 +64,7 @@ namespace {
 
             if (!stats.overflow) {
                 json["mean"] = static_cast<double>(stats.sum) / static_cast<double>(stats.count)
-                               / static_cast<double>(kValueScale);
+                               / static_cast<double>(LogSystem::kValueScale);
             }
         }
 
