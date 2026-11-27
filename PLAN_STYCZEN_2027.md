@@ -113,7 +113,7 @@ Heartbeat i limity czasu są potrzebne do wykrywania awarii maszyny lub sieci, b
 - [x] Dane testowe z unikalnym ID w każdym rekordzie: kolumna `id` z `tools/generator/gen.py`, ciągła przez wszystkie kopie kanału.
 - [ ] Porównanie niezależne od kolejności wyników. Suma na liczbach całkowitych daje wynik niezależny od kolejności chunków; brakuje programu referencyjnego.
 - [ ] Testy bez awarii, z awarią i na granicach zakresów.
-- [ ] Worker zgłasza nieudany chunk zamiast pustego wyniku liczonego jako sukces.
+- [x] Worker zgłasza nieudany chunk zamiast pustego wyniku liczonego jako sukces: pole `failedChunks` w statystykach (gałąź `fix/report-failed-chunks`).
 - [ ] Master nie liczy nieudanej agregacji lub zapisu jako ukończonego chunka.
 
 **Gotowe, gdy:** w każdym scenariuszu nie ma utraconych ani zduplikowanych rekordów, a statystyki są równe wynikowi programu referencyjnego. Warunek o `max_results` przestał obowiązywać, bo po przejściu na statystyki ten limit usunięto.

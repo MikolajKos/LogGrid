@@ -20,7 +20,10 @@ public:
 
         if (!file.is_open()) {
             std::cout << "[WORKER] Could not open file: " << task.filename << "\n";
-            return {};
+            LogSystem::ChunkResult result;
+            result.stats.AddFailedChunk();
+            
+            return result;
         }
         
         const uint64_t startByte = task.start_offset;

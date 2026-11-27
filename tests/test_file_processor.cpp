@@ -36,11 +36,11 @@ namespace {
     }
 }
 
-// Known limitation (KNOWN_ISSUES.md): a file the worker cannot open gives an empty result
 TEST(FileProcessorTest, MissingFileGivesEmptyResult) {
     auto result = FileProcessor::ProcessChunk(
         MakeTask("absolutely/random/filepath/good_luck_finding_it.txt", 0, 1000));
 
+    EXPECT_EQ(result.stats.failed_chunks, 1u);
     EXPECT_EQ(result.stats.count, 0u);
     EXPECT_EQ(result.stats.errors, 0u);
 }

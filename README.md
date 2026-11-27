@@ -108,7 +108,7 @@ curl -X POST http://localhost:8080/api/search \
 
 # 4. Poll for results
 curl -s http://localhost:8080/api/status/0 | python3 -m json.tool
-# → "state": "Done", "stats": {"count": 3, "errors": 0, "sum": 21693490000, "scale": 10000000000,
+# → "state": "Done", "stats": {"count": 3, "errors": 0, "failedChunks": 0, "sum": 21693490000, "scale": 10000000000,
 #   "min": 7188446000, "max": 7307469000, "mean": 0.72311..., "overflow": false}
 
 # 5. View live cluster logs
@@ -205,6 +205,7 @@ Run it from the repository root. Test data comes from [CrazyPrinter API](https:/
   "stats": {
     "count": 14639410,
     "errors": 0,
+    "failedChunks": 0,
     "sum": 105473404436896030,
     "scale": 10000000000,
     "min": 108278130,
@@ -219,6 +220,7 @@ Run it from the repository root. Test data comes from [CrazyPrinter API](https:/
 |-------|-------------|
 | `count` | Number of values parsed |
 | `errors` | Number of lines the parser rejected, including a CSV header and empty lines |
+| `failedChunks` | Number of chunks whose file a Worker could not open; their lines are not in `count` or `errors` |
 | `sum`, `min`, `max` | Values scaled by `scale` (integers, for exact comparison): `min = 108278130` means `0.010827813` |
 | `scale` | `10^kValueScaleDigits`, currently 10¹⁰ |
 | `mean` | `sum / count / scale` as a floating-point number |
@@ -229,7 +231,7 @@ Run it from the repository root. Test data comes from [CrazyPrinter API](https:/
 `sum`, `min` and `max` are 64-bit integers and `sum` is usually above 2^53, so read them with a JSON parser that keeps 64-bit integer precision: Python's `json` does, JavaScript's `JSON.parse` and parsers that store every number as a double do not, and round the last digits.
 
 > [!IMPORTANT]
-> `scanErrors` counts files and directories the Master could not examine while scanning. `"state": "Done"` with `scanErrors` above 0 means the search covered only part of the requested path. Files that a Worker fails to open are not counted yet and appear as chunks with `count` and `errors` equal to 0.
+> `scanErrors` counts files and directories the Master could not examine while scanning. `"state": "Done"` with `scanErrors` above 0 means the search covered only part of the requested path. Likewise, `stats.failedChunks` above 0 means that a Worker could not open the file of some chunks (for example a missing volume mount, a file removed after the scan, or missing read permission), so the statistics cover only part of the data.
 
 **Response `404 Not Found`:** returned when the `id` does not correspond to any known search session.
 

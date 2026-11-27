@@ -8,6 +8,7 @@ namespace LogSystem {
     struct TelemetryStats {
         uint64_t count{0};
         uint64_t errors{0};
+        uint64_t failed_chunks{0};
         int64_t  sum{0};
         int64_t  min{INT64_MAX};
         int64_t  max{INT64_MIN};
@@ -23,6 +24,8 @@ namespace LogSystem {
             ++count;
         }
     
+        void AddFailedChunk() {  ++failed_chunks; }
+
         void AddError() { ++errors; }
         
         void Merge(const TelemetryStats& other) {
@@ -36,6 +39,7 @@ namespace LogSystem {
             min = std::min(min, other.min);
             max = std::max(max, other.max);
             errors += other.errors;
+            failed_chunks += other.failed_chunks;
         }
     };
 }

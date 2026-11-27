@@ -142,3 +142,16 @@ TEST(TelemetryStatsTest, MergeSetsOverflowOnSum) {
 
     EXPECT_TRUE(statsA.overflow);
 }
+
+TEST(TelemetryStatsTest, MergeSumsFailedChunks) {
+    LogSystem::TelemetryStats statsA;
+    statsA.AddFailedChunk();
+    statsA.AddFailedChunk();
+
+    LogSystem::TelemetryStats statsB;
+    statsB.AddFailedChunk();
+
+    statsA.Merge(statsB);
+
+    EXPECT_EQ(statsA.failed_chunks, 3u);
+}
