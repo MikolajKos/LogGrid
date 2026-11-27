@@ -18,13 +18,14 @@ def make_line(c, i):
 parser = argparse.ArgumentParser(description='Generate CSV from ESA-ADB')
 parser.add_argument('--size', default='1G', help='sizes, np. 500M, 1G, 10G')
 parser.add_argument('--out', default='data.csv', help='output file')
+parser.add_argument('--input', default='raw/ESA-Mission1.zip', help='path to ESA-Mission1.zip')
 parser.add_argument('--rows', type=int, help='save only first N lines, np. 1000 (ignores --size)')
 parser.add_argument('--dump', action='store_true', help='save whole channel at once, without copies (ignores --size i --rows)')
 parser.add_argument('--copies', type=int, help='save exactly N full copies, np. 5 (ignores --size)')
 args = parser.parse_args()
 target = parse_size(args.size)
 
-outer = zipfile.ZipFile('raw/ESA-Mission1.zip')
+outer = zipfile.ZipFile(args.input)
 inner = zipfile.ZipFile(io.BytesIO(outer.read('ESA-Mission1/channels/channel_60.zip')))
 
 df = Safe(io.BytesIO(inner.read(inner.namelist()[0]))).load()
