@@ -93,33 +93,12 @@ protected:
                 break;
             }
             case LogSystem::LogSearchMsg::Worker_TaskDone: {
-                uint64_t taskId;
-                msg >> taskId;
-
-                uint64_t searchId, totalMatches;
-                uint32_t lineCount;
-                msg >> searchId >> totalMatches >> lineCount;
-
                 LogSystem::ChunkResult batch;
-                batch.task_id = taskId;
-                batch.search_id = searchId;
-                batch.total_matches = totalMatches;
-                batch.lines_found = lineCount;
-
-                size_t offset = 0;
-                for (uint32_t i = 0; i < lineCount; ++i) {
-                    uint32_t len;
-                    std::memcpy(&len, msg.body.data() + offset, 4);
-                    offset += 4;
-                    batch.lines.emplace_back(
-                        reinterpret_cast<const char*>(msg.body.data() + offset), len
-                    );
-                    offset += len;
-                }
+                msg >> batch;
 
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
-                    m_receivedTaskId = taskId;
+                    m_receivedTaskId = batch.task_id;
                     m_receivedBatch = std::move(batch);
                     m_taskDoneReceived = true;
                 }

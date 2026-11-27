@@ -21,10 +21,8 @@ public:
     bool ShouldDisconnect();
     static size_t CalculateThreadCount(const char* envValue, size_t hardwareThreads);
 private:
-    void SendFoundLine(const LogSystem::LogSearchMsg msgType, const std::string& line = std::string(), const uint64_t searchId = 0);
     void SendHello();
-    void SendTaskDone(LogSystem::ChunkResult& batch);
-    olc::net::message<LogSystem::LogSearchMsg> SerializeBatch(LogSystem::ChunkResult& batch);
+    void SendTaskDone(const LogSystem::ChunkResult& batch);
     static const char* GetThreadsEnv();
 private:
     ThreadPool m_threadPool;

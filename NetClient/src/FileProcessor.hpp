@@ -1,32 +1,33 @@
 #ifndef FILE_PROCESSOR_HPP
 #define FILE_PROCESSOR_HPP
 
-#include <format>
+#include "LogSearchCommon.hpp"
+#include "TelemetryParser.hpp"
+#include "TelemetryStats.hpp"
+
 #include <fstream>
-#include <functional>
 #include <iostream>
-#include <regex>
 #include <string>
 
-#include "LogSearchCommon.hpp"
+// The parser's power table must give the same scale as the rest of the system
+static_assert(TelemetryParser::kPow10[LogSystem::kValueScaleDigits] == LogSystem::kValueScale,
+              "TelemetryParser::kPow10 does not match LogSystem::kValueScale");
 
 class FileProcessor {
 public:
-    static LogSystem::ChunkResult SearchTask(const LogSystem::TaskPayload& task, const uint64_t maxLineCount) {
+    static LogSystem::ChunkResult ProcessChunk(const LogSystem::TaskPayload& task) {
         std::ifstream file(task.filename, std::ios::binary);
-
-        LogSystem::ChunkResult batch;
 
         if (!file.is_open()) {
             std::cout << "[WORKER] Could not open file: " << task.filename << "\n";
             return {};
         }
         
-        uint64_t startByte = task.start_offset;
-        uint64_t endByte = task.end_offset;
-
+        const uint64_t startByte = task.start_offset;
+        const uint64_t endByte = task.end_offset;
+        
         file.seekg(startByte);
-
+        
         // It means we are somewhere in the middle of a text
         if (startByte != 0) {
             // If prev char is '\n' it means that we start perfectly and we dont skip line
@@ -35,40 +36,25 @@ public:
             file.get(prevChar);
 
             if (prevChar != '\n') {
-                std::string dummy;
-                std::getline(file, dummy);
+                std::string skipped;
+                std::getline(file, skipped);
+                // One line was skipped because it was read in previous chubk
             }
         }
-
-        // One line was skipped because it was read in previous chubk
+        
+        LogSystem::ChunkResult batch;
         std::string line;
-
         uint64_t currentPos = static_cast<uint64_t>(file.tellg());
-
-        std::regex pattern;
-
-        // Asign pattern from task keyword and validate
-        try {
-            pattern = std::regex(task.keyword);
-        }
-        catch (const std::regex_error& e) {
-            std::cout << "[WORKER] Invalid regex pattern: " << task.keyword << " (" << e.what() << ")\n";
-            return {};
-        }
         
         while (currentPos < endByte && std::getline(file, line)) {
             // For Windows format (CRLF) delete '\r'
             if (!line.empty() && line.back() == '\r')
                 line.pop_back();
 
-            // Line Found - update batch
-            if (std::regex_search(line, pattern)) {
-                if (batch.lines_found < maxLineCount) {
-                    batch.lines.emplace_back(std::format("{}: {}", task.filename, line));
-                    batch.lines_found++;
-                }
-                batch.total_matches++;
-            }
+            auto value = TelemetryParser::ParseLine(line, LogSystem::kValueScaleDigits);
+
+            // Check and update statistics
+            value ? batch.stats.Add(*value) : batch.stats.AddError();
 
             // Position update
             std::streampos pos = file.tellg();

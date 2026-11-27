@@ -18,15 +18,13 @@
  * @struct SearchSession
  * @brief Represents the internal state and metrics of an active or completed search job.
  * 
- * Tracks the target result path, global statistics (lines found, total matches),
+ * Tracks the result file path, telemetry statistics merged from completed chunks,
  * and chunk completion progress.
  */
 struct SearchSession {
-    std::string path;          /**< Absolute path to the aggregated output result log file on disk. */
+    LogSystem::TelemetryStats stats{}; /**< Statistics merged from every completed chunk (TelemetryStats::Merge). */
+    std::string path;          /**< Absolute result file path for this session. Its directory is created in BuildSession(); no file is written to it yet. */
     uint64_t search_id{0};     /**< Unique identifier assigned to this search session. */
-    uint64_t max_results{0};   /**< Max lines count that can be stored in result file in this session */
-    uint64_t total_matches{0}; /**< Total count of regex matches detected across all processed chunks. */
-    uint64_t line_count{0};    /**< Number of matched lines written to disk (bounded by max_results). */
     uint64_t scan_errors{0};   /**< Number of files or directories that could not be examined during the scan. */
     int chunks_total = 0;      /**< Total number of byte-aligned chunks into which the file(s) were sliced. */
     int chunks_done = 0;       /**< Number of chunks completed and acknowledged by Workers. */
@@ -62,22 +60,26 @@ public:
      * byte-aligned chunks (pushed to m_pendingTasks), and dispatches work to idle Workers.
      * 
      * @param filepath Path to the log file (or directory) to search.
-     * @param keyword Regex search pattern or exact keyword.
-     * @param config Session configuration options (max_results limit, output_dir).
+     * @param config Session configuration options (output_dir for the result file path).
      * @return Unique search_id identifying the job.
      * @throws std::runtime_error If the input filepath does not exist, resolves outside the input
      *         directory, names a single file that cannot be processed, or names a directory whose
      *         scan produced no tasks and hit at least one error.
      */
-    uint64_t StartSearch(const std::string& filepath, const std::string& keyword, const SearchConfig& config) override;
+    uint64_t StartSearch(const std::string& filepath, const SearchConfig& config) override;
 
     /**
      * @brief Retrieves real-time execution metrics and completion status for a given search session.
      * 
      * Thread-safe query invoked asynchronously by REST API controllers.
      * 
+     * The statistics are a copy taken under m_stateMutex, merged from the chunks completed so far.
+     * stats.errors counts every line the parser rejected, including a CSV header and empty lines.
+     * When stats.count is 0, stats.min and stats.max keep their initial values (INT64_MAX and
+     * INT64_MIN) and are not real values.
+     *
      * @param search_id Unique identifier of the search session.
-     * @return SearchStatus containing state (Running/Done), metrics, and chunk progress,
+     * @return SearchStatus containing state (Running/Done), telemetry statistics, and chunk progress,
      *         or std::nullopt if the session does not exist.
      */
     std::optional<SearchStatus> GetStatus(const uint64_t search_id) override;
@@ -106,8 +108,10 @@ protected:
      * 
      * Handles:
      * - Worker_Hello: Registers Worker capacity and saturates all available threads with tasks.
-     * - Worker_TaskDone: Aggregates result metrics, writes batch lines to disk, frees a worker slot,
-     *                    checks for job completion, and immediately dispatches the next task.
+     * - Worker_TaskDone: Reads the ChunkResult and ignores it if its task_id is not in flight for
+     *                    this Worker (late or duplicate result). Otherwise frees a worker slot,
+     *                    dispatches the next task, merges the chunk statistics into the session,
+     *                    counts the chunk as done and checks for job completion.
      *
      * A message too short for its expected fields is logged and discarded.
      *
@@ -131,46 +135,16 @@ private:
     bool DispatchNextTask(std::shared_ptr<olc::net::connection<LogSystem::LogSearchMsg>> client);
 
     /**
-     * @brief Processes a completed task payload received over TCP.
-     * 
-     * Extracts task_id and deserializes the ChunkResult batch. Under m_stateMutex, updates
-     * cumulative line_count and total_matches. Subsequently invokes WriteResults outside lock.
-     * 
-     * @param msg Incoming message containing task_id and serialized batch.
-     * @param authoritativeSearchId Search ID pulled from m_inFlightTasks registry
-     * @return The task_id that finished execution.
-     * @throws std::runtime_error If search_id is unrecognized.
+     * @brief Merges the statistics of one completed chunk into its session.
+     *
+     * Under m_stateMutex, calls TelemetryStats::Merge on the session found by
+     * authoritativeSearchId. The search_id sent by the Worker is not used.
+     *
+     * @param batch Chunk result received from the Worker.
+     * @param authoritativeSearchId Search ID taken from the m_inFlightTasks registry.
+     * @throws std::runtime_error If no session has this search ID.
      */
-    void AggregateTaskResult(olc::net::message<LogSystem::LogSearchMsg>& msg, const uint64_t authoritativeSearchId);
-
-    /**
-     * @brief Deserializes a binary batch payload into a ChunkResult structure.
-     * 
-     * Pops POD headers (search_id, total_matches, line_count) from the message tail,
-     * then extracts length-prefixed matched lines from the front of the body.
-     * 
-     * @param msg Raw network packet received from Worker.
-     * @return Structured ChunkResult populated with metrics and matched lines.
-     */
-    LogSystem::ChunkResult DeserializeBatch(olc::net::message<LogSystem::LogSearchMsg>& msg);
-
-    /**
-     * @brief Appends batched string lines to the session log file on disk.
-     * 
-     * Looks up file path under m_stateMutex, then opens the file in append mode (std::ios::app)
-     * and flushes lines without holding locks to prevent disk I/O from stalling cluster networking.
-     * 
-     * @param lines Vector of matched log lines to write.
-     * @param searchId The ID of the session whose file should be appended.
-     */
-    void WriteResults(std::vector<std::string>& lines, const uint64_t searchId);
-    
-    /**
-     * @brief Opens or appends to a result file on disk.
-     * @param filename Target file path.
-     * @return Open std::ofstream stream in append binary mode, or std::nullopt on failure.
-     */
-    std::optional<std::ofstream> OpenResultFile(const std::string& filename);
+    void AggregateTaskResult(const LogSystem::ChunkResult& batch, const uint64_t authoritativeSearchId);
 
     /**
      * @brief Generates a secure, timestamped result file path and creates parent directories.
@@ -210,7 +184,7 @@ private:
      * at zero and is set later by AddPendingTasks().
      *
      * @param searchId ID obtained from AllocateSearchId().
-     * @param config Search configuration (output_dir, max_results).
+     * @param config Search configuration (output_dir).
      * @return Session ready to be published with AddPendingTasks().
      * @throws std::runtime_error If a Path Traversal attempt is detected in output_dir.
      * @throws std::filesystem::filesystem_error If the output directory cannot be created.
@@ -220,12 +194,10 @@ private:
     /**
      * @brief Constructs a baseline TaskPayload template for file chunking.
      * @param filepath Path of the target file.
-     * @param keyword Pattern/string to search for.
      * @param searchId ID of the owning session.
-     * @param config Search configuration (contains max_results).
-     * @return Populated TaskPayload with search metadata and zeroed offsets.
+     * @return TaskPayload with search_id and filename set; task_id and offsets are zero.
      */
-    LogSystem::TaskPayload CreateChunkTask(const std::string& filepath, const std::string& keyword, const uint64_t searchId, const SearchConfig& config);
+    LogSystem::TaskPayload CreateChunkTask(const std::string& filepath, const uint64_t searchId);
 
     /**
      * @brief Slices a single file into byte-aligned chunks and appends them to a local task list.
@@ -258,13 +230,11 @@ private:
      * checked here: Workers open it later, so a file they cannot read is not counted.
      *
      * @param dir Directory to scan.
-     * @param keyword The regex pattern to search for.
      * @param searchId The ID of the session.
-     * @param config The search configuration.
      * @param outTasks Caller-owned list shared by all recursion levels; chunks of every file found are appended to it.
      * @param scanErrors Caller-owned counter shared by all recursion levels; incremented for each failure.
      */
-    void ScanDirectoryRecursively(const std::filesystem::path& dir, const std::string& keyword, uint64_t searchId, const SearchConfig& config, std::vector<LogSystem::TaskPayload>& outTasks, uint64_t& scanErrors);
+    void ScanDirectoryRecursively(const std::filesystem::path& dir, uint64_t searchId, std::vector<LogSystem::TaskPayload>& outTasks, uint64_t& scanErrors);
 
     /**
      * @brief Reads file size, validates path length, and appends the file's chunks to a local task list.
@@ -274,14 +244,12 @@ private:
      * while a search targeting this file directly fails.
      *
      * @param targetPath The single regular file to process.
-     * @param keyword The regex pattern to search for.
      * @param searchId The ID of the session.
-     * @param config The search configuration.
      * @param outTasks Caller-owned list of tasks being built for the session; chunks are appended to it.
      * @return true if the file was handled, including an empty file that produces no chunks;
      *         false if its size cannot be read or its path is too long for TaskPayload::filename.
      */
-    bool ProcessSingleFile(const std::filesystem::path& targetPath, const std::string& keyword, uint64_t searchId, const SearchConfig& config, std::vector<LogSystem::TaskPayload>& outTasks);
+    bool ProcessSingleFile(const std::filesystem::path& targetPath, uint64_t searchId, std::vector<LogSystem::TaskPayload>& outTasks);
 
     /**
      * @brief Atomically publishes a fully built session together with all of its tasks.

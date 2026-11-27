@@ -36,13 +36,16 @@ public:
         Send(msg);
     }
 
-    void SendTaskDone(const LogSystem::TaskPayload& task) {
-        uint64_t totalMatches{0};
-        uint32_t linesFound{0};
-        
+    void SendTaskDone(const LogSystem::TaskPayload& task, const LogSystem::TelemetryStats& stats = {}) {
         olc::net::message<LogSystem::LogSearchMsg> msg;
         msg.header.id = LogSystem::LogSearchMsg::Worker_TaskDone;
-        msg << linesFound << totalMatches << task.search_id << task.task_id;
+
+        // Same wire format as WorkerClient: the whole ChunkResult with the given stats
+        LogSystem::ChunkResult result{};
+        result.search_id = task.search_id;
+        result.task_id = task.task_id;
+        result.stats = stats;
+        msg << result;
 
         Send(msg);
     }

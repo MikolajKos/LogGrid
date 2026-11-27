@@ -19,7 +19,7 @@ protected:
         std::filesystem::create_directories(m_path/"out");
 
         std::ofstream logFile(m_path/"in"/"a.log");
-        logFile << "ERROR\n";
+        logFile << "1,946684823847,channel_60,0.7188446\n";
 
         // Set base directories
         setenv("LOGGRID_INPUT_DIR", (m_path/"in").string().c_str(), 1);
@@ -66,12 +66,12 @@ protected:
     }
 
     /**
-     * @brief Creates an input log file of at least the given size, made of matching lines.
-     *
-     * Used to make the Master split a file into several chunks.
+     * @brief Creates an input file of at least the given size, made of telemetry lines.
+     * Used to make the Master split a file into several chunks; the Master only reads the file size,
+     * so the content does not affect the tests.
      */
     void WriteLogFile(const std::string& name, uint64_t minBytes) {
-        const std::string line = "ERROR line\n";
+        const std::string line = "1,946684823847,channel_60,0.7188446\n";
         std::string block;
         while (block.size() < 1024 * 1024) block += line;
 
@@ -100,7 +100,7 @@ TEST_F(MasterIntegrationTest, CompletesSearchWithOneWorker) {
     worker.SendHello(1);
 
     // Sends task
-    uint64_t searchId = m_master->StartSearch("a.log", "ERROR", {});
+    uint64_t searchId = m_master->StartSearch("a.log", {});
 
     auto receivedOpt = worker.ReceiveTask(std::chrono::milliseconds(2000));
     ASSERT_TRUE(receivedOpt);
@@ -119,7 +119,7 @@ TEST_F(MasterIntegrationTest, ReassignsTaskWhenWorkerCrashes) {
 
     workerA.SendHello(1);
     
-    uint64_t searchId = m_master->StartSearch("a.log", "ERROR", {});
+    uint64_t searchId = m_master->StartSearch("a.log", {});
     
     // Save offset and filename from task for worker B validation
     auto aTaskOpt = workerA.ReceiveTask(std::chrono::milliseconds(2000));
@@ -151,7 +151,7 @@ TEST_F(MasterIntegrationTest, DispatchesAsManyTasksAsFreeThreads) {
     ASSERT_TRUE(worker.Connect("127.0.0.1", port));
     worker.SendHello(2);
 
-    m_master->StartSearch("big.log", "ERROR", {});
+    m_master->StartSearch("big.log", {});
 
     auto first = worker.ReceiveTask(std::chrono::milliseconds(2000));
     auto second = worker.ReceiveTask(std::chrono::milliseconds(2000));
@@ -171,7 +171,7 @@ TEST_F(MasterIntegrationTest, FinishesOnlyAfterAllChunksAreDone) {
     ASSERT_TRUE(worker.Connect("127.0.0.1", port));
     worker.SendHello(1);
 
-    uint64_t searchId = m_master->StartSearch("two_chunks.log", "ERROR", {});
+    uint64_t searchId = m_master->StartSearch("two_chunks.log", {});
 
     auto first = worker.ReceiveTask(std::chrono::milliseconds(2000));
     ASSERT_TRUE(first);
@@ -201,7 +201,7 @@ TEST_F(MasterIntegrationTest, CountsReassignedChunkOnce) {
     ASSERT_TRUE(workerB.Connect("127.0.0.1", port));
 
     workerA.SendHello(1);
-    uint64_t searchId = m_master->StartSearch("a.log", "ERROR", {});
+    uint64_t searchId = m_master->StartSearch("a.log", {});
 
     auto aTask = workerA.ReceiveTask(std::chrono::milliseconds(2000));
     ASSERT_TRUE(aTask);
@@ -225,7 +225,7 @@ TEST_F(MasterIntegrationTest, ReassignsTaskToWorkerConnectedAfterCrash) {
     ASSERT_TRUE(workerA.Connect("127.0.0.1", port));
     workerA.SendHello(1);
 
-    uint64_t searchId = m_master->StartSearch("a.log", "ERROR", {});
+    uint64_t searchId = m_master->StartSearch("a.log", {});
 
     auto aTask = workerA.ReceiveTask(std::chrono::milliseconds(2000));
     ASSERT_TRUE(aTask);
@@ -252,7 +252,7 @@ TEST_F(MasterIntegrationTest, IgnoresUnknownTaskDone) {
     ASSERT_TRUE(worker.Connect("127.0.0.1", port));
     worker.SendHello(1);
 
-    uint64_t searchId = m_master->StartSearch("a.log", "ERROR", {});
+    uint64_t searchId = m_master->StartSearch("a.log", {});
 
     auto task = worker.ReceiveTask(std::chrono::milliseconds(2000));
     ASSERT_TRUE(task);
@@ -277,7 +277,7 @@ TEST_F(MasterIntegrationTest, IgnoresDuplicateTaskDone) {
     ASSERT_TRUE(worker.Connect("127.0.0.1", port));
     worker.SendHello(1);
 
-    uint64_t firstSearch = m_master->StartSearch("a.log", "ERROR", {});
+    uint64_t firstSearch = m_master->StartSearch("a.log", {});
 
     auto task = worker.ReceiveTask(std::chrono::milliseconds(2000));
     ASSERT_TRUE(task);
@@ -287,7 +287,7 @@ TEST_F(MasterIntegrationTest, IgnoresDuplicateTaskDone) {
     // A second search acts as an ordering probe: its TaskDone travels on the
     // same connection after the duplicate, so once it completes, the
     // duplicate has been handled
-    uint64_t secondSearch = m_master->StartSearch("a.log", "ERROR", {});
+    uint64_t secondSearch = m_master->StartSearch("a.log", {});
     auto probe = worker.ReceiveTask(std::chrono::milliseconds(2000));
     ASSERT_TRUE(probe);
     worker.SendTaskDone(*probe);
@@ -306,7 +306,7 @@ TEST_F(MasterIntegrationTest, ShutsDownWithConnectedWorker) {
     ASSERT_TRUE(worker.Connect("127.0.0.1", port));
     worker.SendHello(1);
 
-    m_master->StartSearch("a.log", "ERROR", {});
+    m_master->StartSearch("a.log", {});
 
     auto receivedOpt = worker.ReceiveTask(std::chrono::milliseconds(2000));
     ASSERT_TRUE(receivedOpt);
@@ -315,4 +315,111 @@ TEST_F(MasterIntegrationTest, ShutsDownWithConnectedWorker) {
     if (m_thread.joinable()) m_thread.join();
     m_master->Stop();
     m_master.reset();
+}
+
+TEST_F(MasterIntegrationTest, MergesStatsFromTwoChunks) {
+    WriteLogFile("two_chunks.log", kChunkSize + 1);   // 2 chunks
+
+    FakeWorker worker;
+    ASSERT_TRUE(worker.Connect("127.0.0.1", port));
+    worker.SendHello(1);
+
+    uint64_t searchId = m_master->StartSearch("two_chunks.log", {});
+
+    LogSystem::TelemetryStats statsA;
+    statsA.Add(10);
+    statsA.Add(20);
+
+    LogSystem::TelemetryStats statsB;
+    statsB.Add(5);
+    statsB.AddError();
+
+    auto first = worker.ReceiveTask(std::chrono::milliseconds(2000));
+    ASSERT_TRUE(first);
+    worker.SendTaskDone(*first, statsA);
+
+    auto second = worker.ReceiveTask(std::chrono::milliseconds(2000));
+    ASSERT_TRUE(second);
+    worker.SendTaskDone(*second, statsB);
+
+    ASSERT_TRUE(WaitUntilDone(searchId, std::chrono::milliseconds(5000)));
+
+    auto status = m_master->GetStatus(searchId);
+    ASSERT_TRUE(status);
+    auto result = status->stats;
+
+    EXPECT_EQ(result.sum, 35);
+    EXPECT_EQ(result.errors, 1u);
+    EXPECT_EQ(result.count, 3u);
+    EXPECT_EQ(result.min, 5);
+    EXPECT_EQ(result.max, 20);
+}
+
+TEST_F(MasterIntegrationTest, DuplicateTaskDoneDoesNotChangeStats) {
+    FakeWorker worker;
+    ASSERT_TRUE(worker.Connect("127.0.0.1", port));
+    worker.SendHello(1);
+
+    uint64_t firstSearch = m_master->StartSearch("a.log", {});
+
+    LogSystem::TelemetryStats stats;
+    stats.Add(20);
+
+    auto task = worker.ReceiveTask(std::chrono::milliseconds(2000));
+    ASSERT_TRUE(task);
+    
+    worker.SendTaskDone(*task, stats);
+    worker.SendTaskDone(*task, stats);
+
+    // Ordering probe: once the second search is done, the duplicate has been handled
+    uint64_t secondSearch = m_master->StartSearch("a.log", {});
+    auto probe = worker.ReceiveTask(std::chrono::milliseconds(2000));
+    ASSERT_TRUE(probe);
+    worker.SendTaskDone(*probe);
+    ASSERT_TRUE(WaitUntilDone(secondSearch, std::chrono::milliseconds(5000)));
+
+    auto status = m_master->GetStatus(firstSearch);
+    ASSERT_TRUE(status);
+    
+    auto result = status->stats;
+
+    EXPECT_EQ(result.sum, 20);
+    EXPECT_EQ(result.max, 20);
+    EXPECT_EQ(result.min, 20);
+    EXPECT_EQ(result.count, 1u);
+    EXPECT_EQ(result.errors, 0u);
+}
+
+TEST_F(MasterIntegrationTest, ReassignedChunkCountsStatsOnce) {
+    FakeWorker workerA;
+    FakeWorker workerB;
+    ASSERT_TRUE(workerA.Connect("127.0.0.1", port));
+    ASSERT_TRUE(workerB.Connect("127.0.0.1", port));
+
+    workerA.SendHello(1);
+    uint64_t searchId = m_master->StartSearch("a.log", {});
+
+    auto aTask = workerA.ReceiveTask(std::chrono::milliseconds(2000));
+    ASSERT_TRUE(aTask);
+
+    workerB.SendHello(1);
+    workerA.Crash();   // A never sends its result
+
+    auto bTask = workerB.ReceiveTask(std::chrono::milliseconds(2000));
+    ASSERT_TRUE(bTask);
+
+    LogSystem::TelemetryStats stats;
+    stats.Add(20);
+    workerB.SendTaskDone(*bTask, stats);
+
+    ASSERT_TRUE(WaitUntilDone(searchId, std::chrono::milliseconds(5000)));
+    
+    auto status = m_master->GetStatus(searchId);
+    ASSERT_TRUE(status);
+
+    EXPECT_EQ(status->stats.sum, 20);
+    EXPECT_EQ(status->stats.max, 20);
+    EXPECT_EQ(status->stats.min, 20);
+    EXPECT_EQ(status->stats.count, 1u);
+    EXPECT_EQ(status->stats.errors, 0u);
 }

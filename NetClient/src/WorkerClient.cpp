@@ -58,9 +58,8 @@ void WorkerClient::OnMessage(olc::net::message<LogSystem::LogSearchMsg>& msg) {
                 
                 // Task id for TaskDone message
                 uint64_t taskId = task.task_id;
-                uint64_t maxLineCount = task.max_results;
-
-                auto batch = FileProcessor::SearchTask(task, maxLineCount);
+                
+                auto batch = FileProcessor::ProcessChunk(task);
 
                 batch.search_id = searchId;
                 batch.task_id = taskId;
@@ -96,32 +95,12 @@ void WorkerClient::SendHello() {
     Send(msg);
 }
 
-void WorkerClient::SendTaskDone(LogSystem::ChunkResult& batch) {
-    auto msg = SerializeBatch(batch);
+void WorkerClient::SendTaskDone(const LogSystem::ChunkResult& batch) {
+    olc::net::message<LogSystem::LogSearchMsg> msg;
     msg.header.id = LogSystem::LogSearchMsg::Worker_TaskDone;
+    msg << batch;
 
     Send(msg);
-}
-
-olc::net::message<LogSystem::LogSearchMsg> WorkerClient::SerializeBatch(LogSystem::ChunkResult& batch) {
-    olc::net::message<LogSystem::LogSearchMsg> msg;
-
-    // Serialize string vector
-    for (const auto& line : batch.lines) {
-        uint32_t len = line.size();
-        const uint8_t* lenPtr = reinterpret_cast<const uint8_t*>(&len);
-        msg.body.insert(msg.body.end(), lenPtr, lenPtr + 4);
-        msg.body.insert(msg.body.end(), line.begin(), line.end());
-    }
-    msg.header.size = msg.size();
-
-    // PODs
-    msg << batch.lines_found
-        << batch.total_matches
-        << batch.search_id
-        << batch.task_id;
-    
-    return msg;
 }
 
 void WorkerClient::OnConnectionResult(bool bConnected) {

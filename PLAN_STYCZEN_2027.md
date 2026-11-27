@@ -1,6 +1,6 @@
 # LogGrid: założenia i plan na styczeń 2027
 
-Stan na 10 listopada 2026. Dokument łączy propozycje dr. Filipa Krużela z obecną architekturą. W sprawie pomiarów i modelu danych ma pierwszeństwo przed wcześniejszym `MVP_JANUARY_2027.md`.
+Stan na 10 listopada 2026, zaktualizowany 27 listopada 2026 po przejściu z wyszukiwania regexem na statystyki telemetryczne. Dokument łączy propozycje dr. Filipa Krużela z obecną architekturą. W sprawie pomiarów i modelu danych ma pierwszeństwo przed wcześniejszym `MVP_JANUARY_2027.md`.
 
 ## Cel
 
@@ -22,6 +22,13 @@ Ustalone 9 listopada 2026: w styczniu LogGrid liczy proste statystyki z danych t
 - Zmieniają się `ChunkResult`, protokół `TaskDone` i agregacja wyników na masterze.
 - Spóźniony lub zduplikowany `TaskDone` nie może zmienić statystyk. Istniejące testy mastera sprawdzają to dla liczników chunków, a po zmianie trzeba je rozszerzyć o statystyki.
 
+Stan na 27 listopada 2026 (gałąź `feat/telemetry-stats`, jeszcze bez PR):
+
+- Dane: kanał `channel_60` z ESA-ADB Mission 1, CSV bez nagłówka, jeden rekord w linii: `id,timestamp,channel,value`. Plik tworzy `tools/generator/gen.py` (Janek).
+- Suma na liczbach całkowitych ze stałym przecinkiem: wartość × 10¹⁰ w `int64_t` (`LogSystem::kValueScaleDigits = 10`). Dodawanie liczb całkowitych nie zależy od kolejności, więc wynik nie zależy od kolejności chunków i można go porównać z referencją przez `==`. W `ch60.csv` wartości mają do 9 cyfr po przecinku; wartość z więcej niż 10 cyframi trafia do `errors`. Suma jednej kopii kanału 60 to ok. 1,05 · 10¹⁷, więc `int64_t` mieści ok. 87 kopii w jednej sesji. Przepełnienie zgłasza pole `overflow`.
+- Zrobione: `TelemetryParser` (linia CSV → wartość ze skalą), `TelemetryStats` (`Add`, `AddError`, `Merge`), worker liczy statystyki chunka, master łączy je w statystyki sesji, `GET /api/status/{id}` zwraca obiekt `stats`. Testy jednostkowe parsera, statystyk i `FileProcessor`, w tym podział pliku w każdym bajcie.
+- Otwarte: testy mastera dla statystyk, czyli łączenie z kilku chunków i duplikat `TaskDone`, który nie zmienia wyniku.
+
 ## Przyjęty model
 
 ```text
@@ -41,16 +48,19 @@ odbiorca ← wyniki ← master ←───────────────�
 | Obszar | Stan |
 |---|---|
 | Wsadowy podział plików, komunikacja master-worker, wyszukiwanie katalogów | Działa, PR #45 scalony |
+| Obliczenie | Statystyki telemetryczne (`count`, `sum`, `min`, `max`, średnia) zamiast regexa, gałąź `feat/telemetry-stats`, bez PR |
 | Testy integracyjne mastera | 9 scenariuszy, uruchamiane w CI |
-| Odzyskiwanie po awarii | Zweryfikowane na klastrze: 73 przebiegi z `kill -9` workera w różnych momentach pracy, wszystkie z pełnym wynikiem (`bench/results/`) |
+| Odzyskiwanie po awarii | Zweryfikowane na klastrze: 73 przebiegi z `kill -9` workera w różnych momentach pracy, wszystkie z pełnym wynikiem (`bench/results/`). Przebiegi dotyczyły wersji z regexem |
 | Czas życia połączeń | Handlery trzymają `shared_from_this()`. Otwarte: kolejność niszczenia w `WorkerClient` (`KNOWN_ISSUES.md`) |
 | Sanitizery | Opcja `LOGGRID_SANITIZER`, ASan/UBSan i TSan czyste lokalnie i dodane do CI |
 | Build obrazów | Release (`-O3`), wcześniej bez optymalizacji, około 8 razy wolniej |
-| Skrypt pomiarowy | `bench/kill_worker.py`: liczba workerów, liczba zabitych, limit CPU, wyniki w CSV |
-| Rozmiar chunka | Stała w kodzie, obecnie 5 MB |
+| Skrypt pomiarowy | `bench/kill_worker.py`: liczba workerów, liczba zabitych, limit CPU, wyniki w CSV. Nie działa z API statystyk: wysyła `keyword` i porównuje wynik z `grep -c` |
+| Rozmiar chunka | Stała `CHUNK_SIZE` w `MasterServer.cpp`: 5 MB przy `DOCKER_DEBUG` (obecnie włączone), inaczej 128 MB |
 | Liczba wątków workera | Z `LOGGRID_WORKER_THREADS`, bez niej wątki maszyny − 1. Skrypt pomiarowy dopasowuje ją do limitu CPU |
 | Host mastera | Stała w kodzie workera, `master-node` |
 | Metryki | Brak eksportu |
+| Przepustowość | Pomiar 24 listopada na laptopie (WSL2), `ch60.csv` (637 MB, 122 chunki): 2 workery × 2 CPU × 2 wątki ok. 3,0 s, czyli ok. 52 MB/s na CPU; bez limitu CPU ok. 0,4 s. Pomiar przez API, po 3 przebiegi. `tellg()` po każdej linii w `FileProcessor` (`KNOWN_ISSUES.md`) do usunięcia przed porównaniem z Flinkiem |
+| Generator danych | Konwerter ESA-ADB → CSV gotowy (`tools/generator/gen.py`) |
 | Generator o stałym tempie i obserwator | Do zbudowania |
 
 ## Definicje pomiarów
@@ -100,13 +110,13 @@ Heartbeat i limity czasu są potrzebne do wykrywania awarii maszyny lub sieci, b
 ### 3. Weryfikacja poprawności
 
 - [ ] Program referencyjny liczący te same statystyki na tych samych danych.
-- [ ] Dane testowe z unikalnym ID w każdym rekordzie.
-- [ ] Porównanie niezależne od kolejności wyników.
+- [x] Dane testowe z unikalnym ID w każdym rekordzie: kolumna `id` z `tools/generator/gen.py`, ciągła przez wszystkie kopie kanału.
+- [ ] Porównanie niezależne od kolejności wyników. Suma na liczbach całkowitych daje wynik niezależny od kolejności chunków; brakuje programu referencyjnego.
 - [ ] Testy bez awarii, z awarią i na granicach zakresów.
 - [ ] Worker zgłasza nieudany chunk zamiast pustego wyniku liczonego jako sukces.
 - [ ] Master nie liczy nieudanej agregacji lub zapisu jako ukończonego chunka.
 
-**Gotowe, gdy:** w każdym scenariuszu nie ma utraconych ani zduplikowanych rekordów, a `max_results` nie obcina wyników.
+**Gotowe, gdy:** w każdym scenariuszu nie ma utraconych ani zduplikowanych rekordów, a statystyki są równe wynikowi programu referencyjnego. Warunek o `max_results` przestał obowiązywać, bo po przejściu na statystyki ten limit usunięto.
 
 ### 4. Konfiguracja i metryki
 
@@ -172,7 +182,7 @@ To test poprawności pomiaru, a nie badanie wydajności trybu ciągłego.
 
 **Z Jankiem:**
 
-1. Format danych telemetrycznych (polecany CSV z jednym rekordem w linii), wybrany kanał i dokładna lista statystyk.
+1. ~~Format danych telemetrycznych (polecany CSV z jednym rekordem w linii), wybrany kanał i dokładna lista statystyk.~~ Ustalone: CSV bez nagłówka `id,timestamp,channel,value`, kanał `channel_60`, statystyki `count`, `sum`, `min`, `max` i średnia, skala 10¹⁰.
 2. Podział odpowiedzialności za generator, konfigurację Flinka, program referencyjny i automatyzację pomiarów.
 3. Format metryk i prowadzenie wykazu rzeczywistego wkładu.
 
