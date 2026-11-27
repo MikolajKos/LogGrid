@@ -48,10 +48,11 @@ namespace {
      */
     nlohmann::json StatsToJson(const LogSystem::TelemetryStats& stats) {
         nlohmann::json json = {
-            { "count",    stats.count },
-            { "errors",   stats.errors },
-            { "scale",    LogSystem::kValueScale },
-            { "overflow", stats.overflow }
+            { "count",          stats.count },
+            { "errors",         stats.errors },
+            {"failedChunks",    stats.failed_chunks },
+            { "scale",          LogSystem::kValueScale },
+            { "overflow",       stats.overflow }
         };
 
         if (!stats.overflow) {
