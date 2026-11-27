@@ -109,7 +109,7 @@ curl -X POST http://localhost:8080/api/search \
 # 4. Poll for results
 curl -s http://localhost:8080/api/status/0 | python3 -m json.tool
 # → "state": "Done", "stats": {"count": 3, "errors": 0, "failedChunks": 0, "sum": 21693490000, "scale": 10000000000,
-#   "min": 7188446000, "max": 7307469000, "mean": 0.72311..., "overflow": false}
+#   "min": 0.7188446, "max": 0.7307469, "mean": 0.72311..., "overflow": false}
 
 # 5. View live cluster logs
 docker compose logs -f
@@ -208,8 +208,8 @@ Run it from the repository root. Test data comes from [CrazyPrinter API](https:/
     "failedChunks": 0,
     "sum": 105473404436896030,
     "scale": 10000000000,
-    "min": 108278130,
-    "max": 9382211000,
+    "min": 0.010827813,
+    "max": 0.9382211,
     "mean": 0.7204757871860685,
     "overflow": false
   }
@@ -221,14 +221,15 @@ Run it from the repository root. Test data comes from [CrazyPrinter API](https:/
 | `count` | Number of values parsed |
 | `errors` | Number of lines the parser rejected, including a CSV header and empty lines |
 | `failedChunks` | Number of chunks whose file a Worker could not open; their lines are not in `count` or `errors` |
-| `sum`, `min`, `max` | Values scaled by `scale` (integers, for exact comparison): `min = 108278130` means `0.010827813` |
+| `sum` | Sum scaled by `scale`, as an integer for exact comparison: `sum = 105473404436896030` means `10547340.4436896030` |
+| `min`, `max` | Smallest and largest value as floating-point numbers |
 | `scale` | `10^kValueScaleDigits`, currently 10¹⁰ |
 | `mean` | `sum / count / scale` as a floating-point number |
 | `overflow` | `true` when the sum did not fit in `int64_t`; `sum` and `mean` are then left out |
 
 `min`, `max` and `mean` are present only when `count > 0`; `sum` and `mean` are left out when `overflow` is `true`.
 
-`sum`, `min` and `max` are 64-bit integers and `sum` is usually above 2^53, so read them with a JSON parser that keeps 64-bit integer precision: Python's `json` does, JavaScript's `JSON.parse` and parsers that store every number as a double do not, and round the last digits.
+`sum` is a 64-bit integer, usually above 2^53, so read it with a JSON parser that keeps 64-bit integer precision: Python's `json` does, JavaScript's `JSON.parse` and parsers that store every number as a double do not, and round the last digits.
 
 > [!IMPORTANT]
 > `scanErrors` counts files and directories the Master could not examine while scanning. `"state": "Done"` with `scanErrors` above 0 means the search covered only part of the requested path. Likewise, `stats.failedChunks` above 0 means that a Worker could not open the file of some chunks (for example a missing volume mount, a file removed after the scan, or missing read permission), so the statistics cover only part of the data.
