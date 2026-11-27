@@ -11,7 +11,7 @@
 [![Doxygen](https://img.shields.io/badge/Doxygen-Documentation-4A86CF?logo=readthedocs&logoColor=fff)](https://www.doxygen.nl/)
 [![Status: WIP](https://img.shields.io/badge/Status-WIP%20(it's%20alive)-orange)]()
 
-**LogGrid** is a fast, distributed log analysis and search system inspired by **MapReduce** and **Splunk** architectures. It is designed for parallel processing of gigabytes of log files distributed across multiple stateless compute nodes, triggered and queried through an asynchronous REST HTTP API.
+**LogGrid** is a distributed batch processing engine inspired by **MapReduce** and **Splunk** architectures. It splits gigabytes of telemetry files into byte-aligned chunks, processes them in parallel on stateless compute nodes and merges the partial results, triggered and queried through an asynchronous REST HTTP API. The current workload computes `count`, `sum`, `min`, `max` and `mean` of one telemetry channel in CSV format.
 
 ---
 
@@ -26,9 +26,9 @@ Client (curl / browser)
         ▼
 ┌─────────────────────┐
 │    Master Node      │  ← splits files into byte-aligned chunks
-│  (HttpApi layer)    │    dispatches tasks, writes results to disk
+│  (HttpApi layer)    │    dispatches tasks, merges partial results
 └──────┬──────────────┘
-       │ TCP (binary batched protocol)
+       │ TCP (binary protocol)
    ┌───┴───┐
    ▼       ▼
 Worker   Worker        ← each Worker runs a local ThreadPool
@@ -38,20 +38,20 @@ Worker   Worker        ← each Worker runs a local ThreadPool
   [EFS / S3]           ← shared log file storage (cloud deployment)
 ```
 
-1. Client sends `POST /api/search` with a file path and keyword
-2. Master splits the file into byte-aligned chunks and dispatches them across all connected Workers
-3. Each Worker runs a local `ThreadPool` and searches its assigned chunk using regex
-4. Matched lines and metrics stream back to Master over TCP as binary batches
-5. Master dynamically appends results to a unique session log file on disk
-6. Client polls `GET /api/status/{id}` to track real-time progress (`chunksDone` vs `chunksTotal`)
+1. Client sends `POST /api/search` with a file or directory path
+2. Master splits the files into byte-aligned chunks and dispatches them across all connected Workers
+3. Each Worker runs a local `ThreadPool`, parses the lines of its assigned chunk and computes `count`, `sum`, `min` and `max` of the `value` column
+4. The chunk statistics go back to Master over TCP as one fixed-size `ChunkResult`
+5. Master merges them into the session statistics (`TelemetryStats::Merge`)
+6. Client polls `GET /api/status/{id}` for progress (`chunksDone` vs `chunksTotal`) and the merged statistics
 
 ---
 
 ## Architecture & Highlights
 
 * **Master-Worker Pipeline** — Master splits log files into byte-aligned chunks and saturates every Worker thread with parallel tasks on connect. As each chunk completes, it is immediately replenished — eliminating idle gaps and maximising throughput.
-* **Disk I/O Aggregation** — Unbounded in-memory vectors have been eliminated. The Master appends batched results from Workers directly to disk instead of keeping them in memory.
-* **Fault Tolerance** — On Worker disconnect, all in-flight tasks are atomically reclaimed and redistributed across every available idle Worker in a single pass — zero manual intervention, zero lost work. Verified on a Docker Compose cluster: in 73 runs a Worker was killed with `kill -9` at 5–95% of the work, and every session finished with all chunks done and a match count equal to `grep -c` (see [Benchmarks](#benchmarks)).
+* **Mergeable Statistics** — Workers return per-chunk `count`, `sum`, `min` and `max` as fixed-point integers (value × 10¹⁰), and the Master merges them with the accumulator model (`Add`/`Merge`, as in Flink's `AggregateFunction`). Integer addition does not depend on order, so the result does not depend on which chunk finishes first or which Worker processed it. A sum that does not fit in `int64_t` is reported with `overflow: true`.
+* **Fault Tolerance** — On Worker disconnect, all in-flight tasks are atomically reclaimed and redistributed across every available idle Worker in a single pass — zero manual intervention, zero lost work. Verified on a Docker Compose cluster: in 73 runs a Worker was killed with `kill -9` at 5–95% of the work, and every session finished with all chunks done and a match count equal to `grep -c` (see [Benchmarks](#benchmarks)). These runs used the earlier regex search; the benchmark has not been moved to the statistics yet.
 * **Async, Non-Blocking API** — Built on standalone ASIO (`io_context`). The legacy blocking `promise/future` patterns were removed. The REST API is fully asynchronous, allowing clients to poll live search states.
 * **Stateless Workers, Persistent Connections** — Workers advertise their thread capacity on connect and remain alive between search sessions — ready to serve the next request without reconnection overhead.
 * **Fully Containerized** — One `docker compose up --build` spins up the entire distributed cluster. Multi-stage Docker builds in Release mode, a shared log volume, and one scalable Worker service (`--scale worker=N`).
@@ -76,13 +76,13 @@ Worker   Worker        ← each Worker runs a local ThreadPool
 
 ## Quick Start
 
-### 1. Prepare Log Data
-LogGrid analyzes log files mounted into the cluster (configured via `/data/logs`). You can seed logs in two ways:
+### 1. Prepare Telemetry Data
+LogGrid reads CSV files mounted into the cluster from `/data/logs`. Each line is `id,timestamp,channel,value` with no header, for example `1,946684823847,channel_60,0.7188446`. Values may have at most 10 digits after the dot (`LogSystem::kValueScaleDigits`); other lines are counted in `errors`.
 
-* **Option A (Recommended for scale testing):** Use **[CrazyPrinter API](https://github.com/MikolajKos/crazy-printer-api)** to generate multi-gigabyte realistic synthetic log streams into `/data/logs`.
-* **Option B (Quick test):** Create a sample log on your host:
+* **Option A (Real data):** Convert a channel of the ESA-ADB dataset with `tools/generator/gen.py` (see [tools/generator/README.md](tools/generator/README.md)) and put the output in `/data/logs`.
+* **Option B (Quick test):** Create a small sample file on your host:
   ```bash
-  sudo mkdir -p /data/logs && echo "[INFO] Sample log line with ERROR code 404" | sudo tee /data/logs/sample.log
+  sudo mkdir -p /data/logs && printf '1,946684823847,channel_60,0.7188446\n2,946684853847,channel_60,0.7197575\n3,946684883847,channel_60,0.7307469\n' | sudo tee /data/logs/sample.csv
   ```
 
 ### 2. Spin up the LogGrid Cluster
@@ -97,18 +97,19 @@ docker compose up -d --build --scale worker=2
 # uses its machine's logical CPUs - 1 and does not see the CPU limit
 # LOGGRID_WORKER_CPUS=2 LOGGRID_WORKER_THREADS=2 docker compose up -d --build --scale worker=2
 
-# 3. Trigger a search (Single file or entire directory)
+# 3. Start an analysis (single file or entire directory)
 curl -X POST http://localhost:8080/api/search \
   -H "Content-Type: application/json" \
-  -d '{"path": "sample.log", "keyword": "ERROR", "outputDir": "quickstart"}'
+  -d '{"path": "sample.csv"}'
 # → {"searchId": 0}
 
-# To search an entire directory recursively:
-# -d '{"path": "", "keyword": "ERROR"}'
+# To analyze an entire directory recursively:
+# -d '{"path": ""}'
 
 # 4. Poll for results
-curl http://localhost:8080/api/status/0
-# → {"searchId": 0, "state": "Done", "chunksDone": 1, "chunksTotal": 1, "linesCount": 1, "totalMatches": 1, "scanErrors": 0}
+curl -s http://localhost:8080/api/status/0 | python3 -m json.tool
+# → "state": "Done", "stats": {"count": 3, "errors": 0, "sum": 21693490000, "scale": 10000000000,
+#   "min": 7188446000, "max": 7307469000, "mean": 0.72311..., "overflow": false}
 
 # 5. View live cluster logs
 docker compose logs -f
@@ -134,6 +135,9 @@ setarch $(uname -m) -R cmake --build build-tsan
 CI runs the test suites in the Release Docker image and in separate ASan/UBSan and TSan builds.
 
 ## Benchmarks
+
+> [!WARNING]
+> `bench/kill_worker.py` was written for the earlier regex search: it still sends `keyword` and compares `totalMatches` with `grep -c`, so it does not work with the statistics API. Moving it to the statistics and the reference program is tracked in `KNOWN_ISSUES.md`. The description below is for that version.
 
 `bench/kill_worker.py` checks task recovery on the Docker Compose cluster. It starts the cluster, runs a search, kills Workers with SIGKILL once a given fraction of chunks is done, and compares the result with `grep -c` on the same files. Each run is PASS, FAIL (wrong count, hung session or a master failure after the search started), INVALID (the kill did not test recovery) or ERROR (the cluster did not start), and is saved as one CSV row in `bench/results/`.
 
@@ -161,23 +165,19 @@ Run it from the repository root. Test data comes from [CrazyPrinter API](https:/
 **Request body:**
 ```json
 {
-  "path": "sample.log",
-  "keyword": "ERROR|WARN",
-  "outputDir": "sessions/errors",
-  "maxResults": 10000
+  "path": "sample.csv",
+  "outputDir": "sessions/channel_60"
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `path` | string | ✅ | Target log file or directory (resolved relative to `LOGGRID_INPUT_DIR`, default: `/app/data`) |
-| `keyword` | string | ✅ | Search term or regex pattern (ECMAScript syntax) |
-| `outputDir` | string | ❌ | Subdirectory to store the aggregated result file (relative to `LOGGRID_OUTPUT_DIR`, default: `/data/loggrid`) |
-| `maxResults` | number | ❌ | Maximum matched lines to collect into result file (default: 10 000) |
+| `path` | string | ✅ | Target CSV file or directory (resolved relative to `LOGGRID_INPUT_DIR`, default: `/app/data`) |
+| `outputDir` | string | ❌ | Subdirectory for the session result file (relative to `LOGGRID_OUTPUT_DIR`, default: `/data/loggrid`). The Master creates the directory, but no result file is written yet; the result is available only through `GET /api/status/{id}` |
 
 > [!NOTE]
 > **Path Resolution & Sandbox Security:**
-> - `path` accepts both individual files (e.g. `"sample.log"`) and whole directories (e.g. `"app_logs"` or `""` for the input root).
+> - `path` accepts both individual files (e.g. `"sample.csv"`) and whole directories (e.g. `"app_logs"` or `""` for the input root).
 > - All paths are resolved relative to `LOGGRID_INPUT_DIR` (configured in `docker-compose.yml` or environment).
 > - Paths are resolved with `std::filesystem::canonical`, including every symlink, and must stay inside the sandbox. Workers receive the resolved path, so the input directory must be mounted at the same location on the Master and all Workers.
 > - A symlink named directly in `path` is accepted if its target is inside the sandbox.
@@ -194,34 +194,40 @@ Run it from the repository root. Test data comes from [CrazyPrinter API](https:/
 
 ### `GET /api/status/{id}` — Poll search status
 
-**Response `200 OK` (search in progress):**
-```json
-{
-  "searchId": 0,
-  "state": "Running",
-  "chunksDone": 14,
-  "chunksTotal": 200,
-  "linesCount": 382,
-  "totalMatches": 405,
-  "scanErrors": 0
-}
-```
-
-**Response `200 OK` (search complete):**
+**Response `200 OK`** (`ch60.csv` from ESA-ADB, 637 MB; while `"state"` is `"Running"`, `stats` holds the chunks merged so far):
 ```json
 {
   "searchId": 0,
   "state": "Done",
-  "chunksDone": 200,
-  "chunksTotal": 200,
-  "linesCount": 10000,
-  "totalMatches": 15420,
-  "scanErrors": 0
+  "chunksDone": 122,
+  "chunksTotal": 122,
+  "scanErrors": 0,
+  "stats": {
+    "count": 14639410,
+    "errors": 0,
+    "sum": 105473404436896030,
+    "scale": 10000000000,
+    "min": 108278130,
+    "max": 9382211000,
+    "mean": 0.7204757871860685,
+    "overflow": false
+  }
 }
 ```
 
+| `stats` field | Description |
+|-------|-------------|
+| `count` | Number of values parsed |
+| `errors` | Number of lines the parser rejected, including a CSV header and empty lines |
+| `sum`, `min`, `max` | Values scaled by `scale` (integers, for exact comparison): `min = 108278130` means `0.010827813` |
+| `scale` | `10^kValueScaleDigits`, currently 10¹⁰ |
+| `mean` | `sum / count / scale` as a floating-point number |
+| `overflow` | `true` when the sum did not fit in `int64_t`; `sum` is then not valid |
+
+`min`, `max` and `mean` are present only when `count > 0`; `mean` is left out when `overflow` is `true`.
+
 > [!IMPORTANT]
-> `scanErrors` counts files and directories the Master could not examine while scanning. `"state": "Done"` with `scanErrors` above 0 means the search covered only part of the requested path. Files that a Worker fails to open are not counted yet and appear as chunks with no matches.
+> `scanErrors` counts files and directories the Master could not examine while scanning. `"state": "Done"` with `scanErrors` above 0 means the search covered only part of the requested path. Files that a Worker fails to open are not counted yet and appear as chunks with `count` and `errors` equal to 0.
 
 **Response `404 Not Found`:** returned when the `id` does not correspond to any known search session.
 
@@ -229,24 +235,24 @@ Run it from the repository root. Test data comes from [CrazyPrinter API](https:/
 
 ## Status
 
-> **Work in Progress** — core networking, pipeline dispatch, fault tolerance, disk I/O, HTTP API, and testing infrastructure are functional.
+> **Work in Progress** — core networking, pipeline dispatch, fault tolerance, telemetry statistics, HTTP API, and testing infrastructure are functional.
 
 ### Done
-- [x] **Async TCP networking** — non-blocking ASIO `io_context`; Master and Workers communicate via a typed binary protocol with length-prefixed batched messages
-- [x] **Pipeline dispatch & disk I/O aggregation** — Master saturates Worker threads, collects batched payloads, and dynamically writes matched lines directly to disk files without exhausting RAM
+- [x] **Async TCP networking** — non-blocking ASIO `io_context`; Master and Workers communicate via a typed binary protocol with fixed-size task and result structs
+- [x] **Pipeline dispatch & result merging** — Master saturates Worker threads and merges the per-chunk statistics of each session in memory
+- [x] **Telemetry statistics** — `count`, `sum`, `min`, `max` and `mean` of the `value` column, with fixed-point `int64_t` sums (value × 10¹⁰), overflow detection and an `errors` counter for rejected lines
 - [x] **Fault tolerance** — all in-flight tasks atomically reclaimed on Worker disconnect and redistributed across every idle Worker in a single pass; verified with `kill -9` on a Docker Compose cluster
 - [x] **Byte-aligned chunk splitting** — file partitioned at exact line boundaries; Worker ThreadPool processes chunks in parallel with CPU-oversubscription protection
-- [x] **HTTP REST API** — `POST /api/search` triggers distributed search; `GET /api/status/{id}` asynchronously polls real-time session metrics (including `chunksDone` and `totalMatches`)
+- [x] **HTTP REST API** — `POST /api/search` triggers distributed search; `GET /api/status/{id}` asynchronously polls session progress (`chunksDone`) and the merged `stats`
 - [x] **Recursive Directory Search** — `path` accepts both individual files and directories; Master enumerates all files recursively, skips empty files, and distributes chunks across a single unified search session
 - [x] **Configurable Path Sandboxing** — `LOGGRID_INPUT_DIR` and `LOGGRID_OUTPUT_DIR` environment variables configure host/container paths with built-in Path Traversal protection
 - [x] **Comprehensive CI/CD & testing** — GoogleTest unit and integration suites (parametrized, edge-case, and real TCP end-to-end); gcov/lcov coverage pipeline; ASan/UBSan and TSan builds in CI
 - [x] **Containerization** — unified multi-stage `Dockerfile` with Release builds, Docker Compose with a scalable Worker service and optional CPU limit, port `8080` exposed for HTTP API
-- [x] **Recovery benchmark** — `bench/kill_worker.py` kills Workers during a search and checks the result against `grep -c`
+- [x] **Recovery benchmark** — `bench/kill_worker.py` kills Workers during a search and checks the result against `grep -c` (regex version; not moved to the statistics yet)
 
 ### Planned
-- [ ] **Result pagination API** — `GET /api/search/{id}/results?offset=0&count=100` to safely serve the aggregated file lines back to the client
 - [ ] **Cloud deployment** — Master and Workers on AWS EC2; shared log storage on EFS/S3; Worker nodes auto-registered on boot
-- [ ] **Plugin Architecture** — refactoring payload parsing to support dynamic analysis modules (WASM/Lua) beyond simple regex
+- [ ] **Plugin Architecture** — refactoring payload parsing to support dynamic analysis modules (WASM/Lua) beyond the built-in telemetry statistics
 
 ---
 
@@ -262,14 +268,16 @@ Run it from the repository root. Test data comes from [CrazyPrinter API](https:/
 ├── Dockerfile
 ├── NetClient                        # Worker node
 │   └── src
-│       ├── FileProcessor.hpp        # Regex chunk search, line-by-line
+│       ├── FileProcessor.hpp        # Chunk processing: reads lines, updates chunk stats
+│       ├── TelemetryParser.hpp      # CSV line → fixed-point value (value × 10^10)
 │       ├── ThreadPool.hpp           # Custom fixed-size thread pool
 │       ├── WorkerClient.hpp/cpp     # ASIO client, task dispatch loop
 │       └── main.cpp
 ├── NetCommon                        # Shared types and networking primitives
 │   └── include
-│       ├── ISearchService.hpp       # Service interface (SearchHandle, SearchConfig, SearchStatus)
-│       ├── LogSearchCommon.hpp      # Binary protocol structs (TaskPayload, ResultPayload, …)
+│       ├── ISearchService.hpp       # Service interface (SearchConfig, SearchStatus)
+│       ├── LogSearchCommon.hpp      # Binary protocol structs (TaskPayload, ChunkResult), kValueScaleDigits
+│       ├── TelemetryStats.hpp       # Mergeable statistics: Add, AddError, Merge
 │       ├── net_client.hpp
 │       ├── net_common.hpp
 │       ├── net_connection.hpp
@@ -284,12 +292,17 @@ Run it from the repository root. Test data comes from [CrazyPrinter API](https:/
 │       ├── MasterServer.hpp/cpp     # Domain logic — dispatch, fault tolerance, aggregation
 │       └── main.cpp
 ├── tests
-│   ├── test_file_processor.cpp      # Unit tests — 100% line coverage
+│   ├── test_file_processor.cpp      # Unit tests — chunk boundaries, stats per chunk
+│   ├── test_telemetry_parser.cpp    # Unit tests — value parsing, field count, overflow
+│   ├── test_telemetry_stats.cpp     # Unit tests — Add, Merge, overflow
 │   ├── test_thread_pool.cpp         # Unit tests — parametrized, FIFO ordering
 │   ├── test_worker_client.cpp       # Unit tests — thread count edge cases
 │   ├── test_worker_integration.cpp  # Integration tests — real TCP end-to-end
 │   ├── test_master_integration.cpp  # Integration tests — Master dispatch and recovery
-│   └── FakeWorker.hpp               # Scripted Worker for Master tests
+│   ├── FakeWorker.hpp               # Scripted Worker for Master tests
+│   └── TestServer.hpp               # Minimal Master for Worker tests
+├── tools
+│   └── generator                    # ESA-ADB channel → telemetry CSV (gen.py)
 └── external
     ├── asio/                        # Standalone ASIO
     ├── httplib.h                    # cpp-httplib (header-only)
