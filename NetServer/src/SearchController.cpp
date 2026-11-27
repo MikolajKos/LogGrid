@@ -54,17 +54,20 @@ namespace {
      * @brief Converts merged telemetry statistics to the JSON part of the status response.
      *
      * sum, min and max stay scaled integers (value * scale), so a client can compare them exactly.
-     * min, max and mean are present only when at least one value was counted; mean is left out
-     * after an overflow, because sum is then not valid.
+     * min, max and mean are present only when at least one value was counted. After an overflow,
+     * sum holds a wrapped value, so sum and mean are left out; count, errors, min and max stay valid.
      */
     nlohmann::json StatsToJson(const LogSystem::TelemetryStats& stats) {
         nlohmann::json json = {
             { "count",    stats.count },
             { "errors",   stats.errors },
-            { "sum",      stats.sum },
             { "scale",    kValueScale },
             { "overflow", stats.overflow }
         };
+
+        if (!stats.overflow) {
+            json["sum"] = stats.sum;
+        }
 
         if (stats.count > 0) {
             json["min"] = stats.min;

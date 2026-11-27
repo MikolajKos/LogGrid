@@ -222,9 +222,11 @@ Run it from the repository root. Test data comes from [CrazyPrinter API](https:/
 | `sum`, `min`, `max` | Values scaled by `scale` (integers, for exact comparison): `min = 108278130` means `0.010827813` |
 | `scale` | `10^kValueScaleDigits`, currently 10¹⁰ |
 | `mean` | `sum / count / scale` as a floating-point number |
-| `overflow` | `true` when the sum did not fit in `int64_t`; `sum` is then not valid |
+| `overflow` | `true` when the sum did not fit in `int64_t`; `sum` and `mean` are then left out |
 
-`min`, `max` and `mean` are present only when `count > 0`; `mean` is left out when `overflow` is `true`.
+`min`, `max` and `mean` are present only when `count > 0`; `sum` and `mean` are left out when `overflow` is `true`.
+
+`sum`, `min` and `max` are 64-bit integers and `sum` is usually above 2^53, so read them with a JSON parser that keeps 64-bit integer precision: Python's `json` does, JavaScript's `JSON.parse` and parsers that store every number as a double do not, and round the last digits.
 
 > [!IMPORTANT]
 > `scanErrors` counts files and directories the Master could not examine while scanning. `"state": "Done"` with `scanErrors` above 0 means the search covered only part of the requested path. Files that a Worker fails to open are not counted yet and appear as chunks with `count` and `errors` equal to 0.
